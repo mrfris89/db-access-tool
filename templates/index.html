@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DB Access Tool — New User Provisioning</title>
+<style>
+  :root{
+    --bg: #0f1115;
+    --panel: #161922;
+    --panel-2: #1c2029;
+    --border: #2a2f3a;
+    --text: #e4e7ed;
+    --text-dim: #8a8f9c;
+    --accent: #4fd1c5;
+    --accent-dim: #1f4d49;
+    --warn: #e0a23c;
+    --danger: #e0584a;
+    --mono: "SF Mono", "Consolas", "Menlo", monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height:100vh;
+  }
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 24px;
+    border-bottom:1px solid var(--border);
+    background: var(--panel);
+  }
+  .topbar .brand{
+    display:flex; align-items:center; gap:10px;
+    font-weight:600; font-size:14px; letter-spacing:.2px;
+  }
+  .brand .dot{
+    width:8px;height:8px;border-radius:50%;background:var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+  }
+  .topbar .user{
+    font-size:12px; color:var(--text-dim);
+  }
+  .layout{
+    display:flex;
+    min-height: calc(100vh - 49px);
+  }
+  .sidebar{
+    width:230px;
+    border-right:1px solid var(--border);
+    padding:18px 0;
+    background: var(--panel);
+  }
+  .sidebar .group-label{
+    font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--text-dim); padding:6px 20px; margin-top:6px;
+  }
+  .sidebar a{
+    display:flex; align-items:center; gap:10px;
+    padding:9px 20px;
+    color:var(--text-dim);
+    text-decoration:none;
+    font-size:13.5px;
+    border-left:2px solid transparent;
+  }
+  .sidebar a.active{
+    color:var(--text);
+    background: var(--panel-2);
+    border-left:2px solid var(--accent);
+  }
+  .sidebar a.disabled{
+    opacity:.4; cursor:not-allowed;
+  }
+  .main{
+    flex:1;
+    padding:28px 36px;
+    max-width: 920px;
+  }
+  .page-head{
+    margin-bottom: 22px;
+  }
+  .page-head h1{
+    font-size: 20px;
+    margin:0 0 4px 0;
+    font-weight:600;
+  }
+  .page-head p{
+    margin:0;
+    color:var(--text-dim);
+    font-size:13px;
+  }
+  .step-track{
+    display:flex; gap:6px; margin-bottom:24px;
+  }
+  .step-track .seg{
+    height:3px; flex:1; background:var(--border); border-radius:2px;
+  }
+  .step-track .seg.done{ background:var(--accent); }
+
+  .card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:22px 24px;
+    margin-bottom:18px;
+  }
+  .card h2{
+    font-size:13px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--text-dim);
+    margin:0 0 16px 0;
+    font-weight:600;
+  }
+  .grid2{
+    display:grid; grid-template-columns: 1fr 1fr; gap:16px;
+  }
+  .field{ margin-bottom:14px; }
+  .field label{
+    display:block; font-size:12.5px; color:var(--text-dim); margin-bottom:6px;
+  }
+  .field .hint{
+    font-size:11px; color:var(--text-dim); margin-top:4px; opacity:.75;
+  }
+  input[type=text], select{
+    width:100%;
+    background: var(--panel-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:9px 11px;
+    border-radius:6px;
+    font-size:13.5px;
+    font-family:inherit;
+  }
+  input[type=text]:focus, select:focus{
+    outline:none; border-color: var(--accent);
+  }
+  .radio-row{ display:flex; gap:18px; margin-top:4px; }
+  .radio-row label{
+    display:flex; align-items:center; gap:6px;
+    font-size:13px; color:var(--text); cursor:pointer;
+  }
+  .radio-row input{ accent-color: var(--accent); }
+
+  .btn{
+    border:none; border-radius:7px;
+    padding:10px 18px;
+    font-size:13.5px; font-weight:600;
+    cursor:pointer;
+    font-family:inherit;
+  }
+  .btn-primary{ background:var(--accent); color:#06231f; }
+  .btn-primary:hover{ background:#62ddd1; }
+  .btn-secondary{ background:transparent; color:var(--text-dim); border:1px solid var(--border); }
+  .btn-secondary:hover{ color:var(--text); border-color:#3a414f; }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+
+  .actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:6px; }
+
+  /* Preview screen */
+  .code-block{
+    background:#0a0c10;
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:16px;
+    font-family: var(--mono);
+    font-size:12.5px;
+    line-height:1.65;
+    color:#b9f6e9;
+    white-space:pre-wrap;
+    overflow-x:auto;
+  }
+  .code-block .comment{ color:#6b7280; }
+  .copy-btn{
+    font-size:11.5px; color:var(--text-dim); background:none; border:1px solid var(--border);
+    border-radius:5px; padding:5px 10px; cursor:pointer; float:right; margin-bottom:8px;
+  }
+  .copy-btn:hover{ color:var(--text); }
+
+  .meta-row{
+    display:flex; justify-content:space-between;
+    padding:9px 0; border-bottom:1px solid var(--border);
+    font-size:13px;
+  }
+  .meta-row:last-child{ border-bottom:none; }
+  .meta-row .k{ color:var(--text-dim); }
+  .meta-row .v{ font-family: var(--mono); font-size:12.5px; }
+
+  .pw-box{
+    display:flex; align-items:center; gap:10px;
+    background: var(--panel-2); border:1px solid var(--accent-dim);
+    border-radius:7px; padding:12px 14px; margin-top:6px;
+  }
+  .pw-box .pw{
+    font-family: var(--mono); font-size:15px; letter-spacing:.5px; color:var(--accent);
+    flex:1;
+  }
+  .warn-banner{
+    display:flex; gap:10px; align-items:flex-start;
+    background: rgba(224,162,60,0.08);
+    border:1px solid rgba(224,162,60,0.35);
+    border-radius:7px; padding:11px 14px; font-size:12.5px; color:#e0a23c;
+    margin-bottom:18px;
+  }
+  .success-banner{
+    display:flex; gap:10px; align-items:flex-start;
+    background: rgba(79,209,197,0.08);
+    border:1px solid rgba(79,209,197,0.35);
+    border-radius:7px; padding:11px 14px; font-size:12.5px; color:var(--accent);
+    margin-bottom:18px;
+  }
+  .pill{
+    display:inline-block; font-size:11px; padding:3px 9px; border-radius:20px;
+    font-weight:600;
+  }
+  .pill-pending{ background:rgba(224,162,60,.15); color:var(--warn); }
+  .pill-active{ background:rgba(79,209,197,.15); color:var(--accent); }
+
+  .hidden{ display:none !important; }
+
+  .autocomplete-results{
+    position:absolute; top:100%; left:0; right:0; z-index:30;
+    background: var(--panel-2);
+    border:1px solid var(--border);
+    border-radius:8px;
+    margin-top:4px;
+    max-height:220px; overflow-y:auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  }
+  .autocomplete-results .item{
+    padding:9px 12px; cursor:pointer; font-size:13px;
+    border-bottom:1px solid var(--border);
+  }
+  .autocomplete-results .item:last-child{ border-bottom:none; }
+  .autocomplete-results .item:hover{ background: var(--panel); }
+  .autocomplete-results .item .nm{ font-weight:600; }
+  .autocomplete-results .item .meta{ font-size:11px; color:var(--text-dim); font-family:var(--mono); }
+  .autocomplete-results .empty{ padding:9px 12px; font-size:12.5px; color:var(--text-dim); }
+
+  .table-std{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  .table-std th{ text-align:left; padding:9px 12px; color:var(--text-dim); text-transform:uppercase; font-size:10.5px; letter-spacing:.05em; border-bottom:1px solid var(--border); }
+  .table-std td{ padding:9px 12px; border-bottom:1px solid var(--border); }
+
+  .upload-zone{
+    border:1px dashed var(--border);
+    border-radius:8px;
+    padding:28px;
+    text-align:center;
+    color:var(--text-dim);
+    font-size:13px;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand"><span class="dot"></span> DB Access Tool</div>
+  <div class="user">Logged in as <strong style="color:var(--text)">dba_admin</strong></div>
+</div>
+
+<div class="layout">
+  <div class="sidebar">
+    <div class="group-label">Database Access</div>
+    <a href="#" id="nav-provisioning" class="active" onclick="showPage('provisioning')">New User Provisioning</a>
+    <a href="#" id="nav-dashboard" onclick="showPage('dashboard')">Active Access Dashboard</a>
+    <a href="#" class="disabled">Extension Requests</a>
+    <a href="#" class="disabled">Audit Log</a>
+    <div class="group-label">Administrasi</div>
+    <a href="#" id="nav-employee" onclick="showPage('employee')">Data Karyawan</a>
+  </div>
+
+  <div class="main">
+
+    <div id="page-provisioning">
+    <!-- STEP 1: FORM -->
+    <div id="step-form">
+      <div class="page-head">
+        <h1>New User Provisioning</h1>
+        <p>Buat akses sementara untuk developer. Script dibuat otomatis, eksekusi manual oleh DBA.</p>
+      </div>
+
+      <div class="step-track">
+        <div class="seg done"></div>
+        <div class="seg"></div>
+        <div class="seg"></div>
+      </div>
+
+      <div class="card">
+        <h2>Informasi Permintaan <span style="color:var(--danger); font-weight:400; text-transform:none; letter-spacing:0;">— semua wajib diisi</span></h2>
+        <div class="field" style="position:relative;">
+          <label>Cari Pemohon (NIK atau Nama) *</label>
+          <input type="text" id="f-search-req" placeholder="Ketik NIK atau nama karyawan..." autocomplete="off" oninput="searchEmployee('req')">
+          <div id="f-search-req-results" class="autocomplete-results hidden"></div>
+          <div class="hint">Data hasil pencarian otomatis mengisi field di bawah. Field tetap bisa diedit manual.</div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Nama Pengguna *</label>
+            <input type="text" id="f-requester" placeholder="cth. Budi Santoso">
+          </div>
+          <div class="field">
+            <label>NIK *</label>
+            <input type="text" id="f-nik" placeholder="cth. 198501012010011001">
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Nama Unit *</label>
+            <input type="text" id="f-unit" placeholder="cth. Teknologi Informasi">
+          </div>
+          <div class="field">
+            <label>Nama Sub Unit *</label>
+            <input type="text" id="f-subunit" placeholder="cth. Backend Engineering">
+          </div>
+        </div>
+        <div class="field" style="position:relative;">
+          <label>Created by (nama DBA) *</label>
+          <input type="text" id="f-search-createdby" placeholder="Ketik NIK atau nama DBA..." autocomplete="off" oninput="searchEmployee('createdby')">
+          <div id="f-search-createdby-results" class="autocomplete-results hidden"></div>
+          <input type="hidden" id="f-createdby">
+          <div class="hint" id="createdby-selected"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Target Database <span style="color:var(--danger); font-weight:400; text-transform:none; letter-spacing:0;">— semua wajib diisi</span></h2>
+        <div class="grid2">
+          <div class="field">
+            <label>Database Type *</label>
+            <select id="f-dbtype">
+              <option value="">— Pilih —</option>
+              <option value="oracle">Oracle</option>
+              <option value="mysql">MySQL</option>
+              <option value="postgres">PostgreSQL</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>DB Host / Target *</label>
+            <input type="text" id="f-host" placeholder="cth. prod-db-01.internal">
+          </div>
+        </div>
+        <div class="field">
+          <label>Username yang akan dibuat *</label>
+          <input type="text" id="f-username" placeholder="cth. budi_temp_akses">
+        </div>
+        <div class="field">
+          <label>Role Name *</label>
+          <input type="text" id="f-role" placeholder="cth. readonly_orders">
+          <div class="hint" id="role-hint">Pilih database type dulu untuk melihat catatan role.</div>
+        </div>
+        <div class="field hidden" id="f-allowlist-wrapper">
+          <label id="f-allowlist-label">Host Allowlist *</label>
+          <input type="text" id="f-allowlist" placeholder="cth. 10.20.30.5 atau 10.20.30.0/24">
+          <div class="hint" id="allowlist-hint"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Durasi Akses <span style="color:var(--danger); font-weight:400; text-transform:none; letter-spacing:0;">— semua wajib diisi</span></h2>
+        <div class="grid2">
+          <div class="field">
+            <label>Quarter *</label>
+            <select id="f-quarter">
+              <option value="">— Pilih —</option>
+              <option value="Q1">Q1 (Jan–Mar)</option>
+              <option value="Q2">Q2 (Apr–Jun)</option>
+              <option value="Q3">Q3 (Jul–Sep)</option>
+              <option value="Q4">Q4 (Okt–Des)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Tahun *</label>
+            <input type="text" id="f-year" placeholder="cth. 2026" maxlength="4">
+          </div>
+        </div>
+        <div class="hint" id="expiry-preview">Expiry akan dihitung sebagai akhir dari quarter yang dipilih.</div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-secondary" onclick="resetForm()">Reset</button>
+        <button class="btn btn-primary" onclick="goToPreview()">Generate Script →</button>
+      </div>
+    </div>
+
+    <!-- STEP 2: PREVIEW -->
+    <div id="step-preview" class="hidden">
+      <div class="page-head">
+        <h1>Preview Script</h1>
+        <p>Periksa script dan password sebelum konfirmasi. Password hanya ditampilkan sekali di sini.</p>
+      </div>
+
+      <div class="step-track">
+        <div class="seg done"></div>
+        <div class="seg done"></div>
+        <div class="seg"></div>
+      </div>
+
+      <div class="warn-banner">
+        ⚠ Password di bawah tidak disimpan di sistem. Salin sekarang — setelah halaman ini ditutup, password tidak bisa ditampilkan ulang.
+      </div>
+
+      <div class="card">
+        <h2>Generated Password</h2>
+        <div class="pw-box">
+          <span class="pw" id="gen-password">—</span>
+          <button class="btn btn-secondary" onclick="copyText('gen-password')">Copy</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Ringkasan</h2>
+        <div class="meta-row"><span class="k">Nama Pengguna</span><span class="v" id="sum-requester">—</span></div>
+        <div class="meta-row"><span class="k">NIK</span><span class="v" id="sum-nik">—</span></div>
+        <div class="meta-row"><span class="k">Unit</span><span class="v" id="sum-unit">—</span></div>
+        <div class="meta-row"><span class="k">Sub Unit</span><span class="v" id="sum-subunit">—</span></div>
+        <div class="meta-row"><span class="k">Created by</span><span class="v" id="sum-createdby">—</span></div>
+        <div class="meta-row"><span class="k">Database Type</span><span class="v" id="sum-dbtype">—</span></div>
+        <div class="meta-row"><span class="k">DB Host</span><span class="v" id="sum-host">—</span></div>
+        <div class="meta-row"><span class="k">Username</span><span class="v" id="sum-username">—</span></div>
+        <div class="meta-row"><span class="k">Role</span><span class="v" id="sum-role">—</span></div>
+        <div class="meta-row hidden" id="sum-allowlist-row"><span class="k">Host Allowlist</span><span class="v" id="sum-allowlist">—</span></div>
+        <div class="meta-row"><span class="k">Expiry At</span><span class="v" id="sum-expiry">—</span></div>
+      </div>
+
+      <div class="card">
+        <h2>SQL Script</h2>
+        <button class="copy-btn" onclick="copyText('sql-script')">Copy script</button>
+        <div class="code-block" id="sql-script">—</div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-secondary" onclick="backToForm()">← Kembali</button>
+        <button class="btn btn-primary" onclick="confirmSave()">Confirm &amp; Save to Tracking</button>
+      </div>
+    </div>
+
+    <!-- STEP 3: SAVED / EXECUTE -->
+    <div id="step-saved" class="hidden">
+      <div class="page-head">
+        <h1>Tracking Tersimpan</h1>
+        <p>Jalankan script di jump server, lalu konfirmasi eksekusi di bawah.</p>
+      </div>
+
+      <div class="step-track">
+        <div class="seg done"></div>
+        <div class="seg done"></div>
+        <div class="seg done"></div>
+      </div>
+
+      <div class="success-banner">
+        ✓ Record tersimpan ke tracking database dengan status <strong style="margin-left:4px;">PENDING</strong>.
+      </div>
+
+      <div class="card">
+        <h2>Tracking Record</h2>
+        <div class="meta-row"><span class="k">ID</span><span class="v" id="tr-id">—</span></div>
+        <div class="meta-row"><span class="k">Username</span><span class="v" id="tr-username">—</span></div>
+        <div class="meta-row"><span class="k">Nama Pengguna</span><span class="v" id="tr-requester">—</span></div>
+        <div class="meta-row"><span class="k">NIK</span><span class="v" id="tr-nik">—</span></div>
+        <div class="meta-row"><span class="k">Unit</span><span class="v" id="tr-unit">—</span></div>
+        <div class="meta-row"><span class="k">Sub Unit</span><span class="v" id="tr-subunit">—</span></div>
+        <div class="meta-row"><span class="k">Created by</span><span class="v" id="tr-createdby">—</span></div>
+        <div class="meta-row"><span class="k">DB Type</span><span class="v" id="tr-dbtype">—</span></div>
+        <div class="meta-row"><span class="k">Created At</span><span class="v" id="tr-createdat">—</span></div>
+        <div class="meta-row"><span class="k">Expiry At</span><span class="v" id="tr-expiry">—</span></div>
+        <div class="meta-row"><span class="k">Status</span><span class="v"><span class="pill pill-pending" id="tr-status">PENDING</span></span></div>
+      </div>
+
+      <div class="card">
+        <h2>Langkah Selanjutnya</h2>
+        <p style="font-size:13px; color:var(--text-dim); line-height:1.6; margin:0 0 14px 0;">
+          1. Salin script dari layar sebelumnya (sudah tidak bisa dilihat ulang di sini).<br>
+          2. Login ke jump server, jalankan script secara manual.<br>
+          3. Setelah berhasil dieksekusi, klik tombol di bawah untuk update status.
+        </p>
+        <button class="btn btn-primary" id="confirm-exec-btn" onclick="confirmExecuted()">Confirm Executed</button>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-secondary" onclick="startOver()">+ Buat Provisioning Baru</button>
+      </div>
+    </div>
+    </div> <!-- /page-provisioning -->
+
+    <!-- DASHBOARD PAGE -->
+    <div id="page-dashboard" class="hidden" style="max-width: 1180px;">
+      <div class="page-head">
+        <h1>Active Access Dashboard</h1>
+        <p>Monitoring dan aksi terhadap akses yang sedang berjalan. Semua aksi hanya generate script — eksekusi tetap manual oleh DBA.</p>
+      </div>
+
+      <div class="card" style="padding:16px 20px;">
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <div style="flex:1; min-width:220px;">
+            <input type="text" id="dash-search" placeholder="Cari username atau nama pengguna..." oninput="renderDashboard()">
+          </div>
+          <div>
+            <select id="dash-filter-status" onchange="renderDashboard()">
+              <option value="">Semua Status</option>
+              <option value="PENDING">Pending</option>
+              <option value="ACTIVE">Active</option>
+              <option value="EXTENDED">Extended</option>
+              <option value="LOCKED">Locked</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0; overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+          <thead>
+            <tr style="text-align:left; border-bottom:1px solid var(--border); color:var(--text-dim); text-transform:uppercase; font-size:10.5px; letter-spacing:.05em;">
+              <th style="padding:11px 14px;">ID</th>
+              <th style="padding:11px 14px;">Username</th>
+              <th style="padding:11px 14px;">NIK</th>
+              <th style="padding:11px 14px;">Nama Pengguna</th>
+              <th style="padding:11px 14px;">Unit</th>
+              <th style="padding:11px 14px;">Sub Unit</th>
+              <th style="padding:11px 14px;">DB Type</th>
+              <th style="padding:11px 14px;">Host</th>
+              <th style="padding:11px 14px;">Created At</th>
+              <th style="padding:11px 14px;">Expiry At</th>
+              <th style="padding:11px 14px;">Status</th>
+              <th style="padding:11px 14px;">Created By</th>
+              <th style="padding:11px 14px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="dash-tbody">
+          </tbody>
+        </table>
+        <div id="dash-empty" class="hidden" style="padding:40px; text-align:center; color:var(--text-dim); font-size:13px;">
+          Belum ada record. Buat provisioning baru terlebih dahulu.
+        </div>
+      </div>
+    </div>
+
+    <!-- DATA KARYAWAN PAGE -->
+    <div id="page-employee" class="hidden" style="max-width: 980px;">
+      <div class="page-head">
+        <h1>Data Karyawan</h1>
+        <p>Master data karyawan untuk auto-completion di form provisioning. Upload akan menggantikan seluruh data yang ada.</p>
+      </div>
+
+      <div class="card">
+        <h2>Upload Excel</h2>
+        <div id="emp-upload-zone" class="upload-zone">
+          <p style="margin:0 0 10px 0;">Pilih file .xlsx berisi kolom NIK, Nama Karyawan, Nama Unit, Nama Sub Unit</p>
+          <input type="file" id="emp-file-input" accept=".xlsx" style="display:none" onchange="handleEmployeeFile(this)">
+          <button class="btn btn-secondary" onclick="triggerEmployeeFileInput()">Pilih File</button>
+        </div>
+      </div>
+
+      <div id="emp-mapping-card" class="card hidden">
+        <h2>Mapping Kolom</h2>
+        <p style="font-size:12.5px; color:var(--text-dim); margin-top:-8px;">File terdeteksi memiliki header berikut. Cocokkan setiap kolom excel dengan field yang dibutuhkan.</p>
+        <div class="grid2">
+          <div class="field">
+            <label>Kolom untuk NIK</label>
+            <select id="map-nik">
+              <option value="0">Kolom A — NIK</option>
+              <option value="1">Kolom B — Nama_Karyawan</option>
+              <option value="2">Kolom C — Unit</option>
+              <option value="3">Kolom D — SubUnit</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Kolom untuk Nama Karyawan</label>
+            <select id="map-nama">
+              <option value="0">Kolom A — NIK</option>
+              <option value="1" selected>Kolom B — Nama_Karyawan</option>
+              <option value="2">Kolom C — Unit</option>
+              <option value="3">Kolom D — SubUnit</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Kolom untuk Nama Unit</label>
+            <select id="map-unit">
+              <option value="0">Kolom A — NIK</option>
+              <option value="1">Kolom B — Nama_Karyawan</option>
+              <option value="2" selected>Kolom C — Unit</option>
+              <option value="3">Kolom D — SubUnit</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Kolom untuk Nama Sub Unit</label>
+            <select id="map-subunit">
+              <option value="0">Kolom A — NIK</option>
+              <option value="1">Kolom B — Nama_Karyawan</option>
+              <option value="2">Kolom C — Unit</option>
+              <option value="3" selected>Kolom D — SubUnit</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="previewEmployeeMapping()">Preview Hasil Mapping</button>
+      </div>
+
+      <div id="emp-preview-card" class="card hidden">
+        <h2>Preview (3 baris pertama dari total <span id="emp-preview-count">0</span> baris)</h2>
+        <table class="table-std">
+          <thead><tr><th>NIK</th><th>Nama Karyawan</th><th>Unit</th><th>Sub Unit</th></tr></thead>
+          <tbody id="emp-preview-tbody"></tbody>
+        </table>
+        <div class="warn-banner" style="margin-top:14px;">
+          ⚠ Konfirmasi akan menghapus seluruh data karyawan yang ada sebelumnya dan menggantikannya dengan data ini.
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" onclick="cancelEmployeeUpload()">Batal</button>
+          <button class="btn btn-primary" onclick="confirmEmployeeReplace()">Confirm Replace</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Data Karyawan Saat Ini <span style="color:var(--text-dim); font-weight:400; text-transform:none; letter-spacing:0;">(<span id="emp-current-count">0</span> karyawan)</span></h2>
+        <div style="margin-bottom:12px;">
+          <input type="text" id="emp-table-search" placeholder="Cari NIK atau nama..." oninput="renderEmployeeTable()">
+        </div>
+        <table class="table-std">
+          <thead><tr><th>NIK</th><th>Nama Karyawan</th><th>Unit</th><th>Sub Unit</th></tr></thead>
+          <tbody id="emp-table-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+
+    <div id="modal-overlay" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:50;">
+      <div class="card" style="width:480px; max-width:90vw; margin:0;">
+        <h2 id="modal-title">Detail Akses</h2>
+        <div id="modal-body"></div>
+        <div class="actions" style="margin-top:18px;">
+          <button class="btn btn-secondary" onclick="closeModal()">Tutup</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Lock Now -->
+    <div id="modal-lock" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:50;">
+      <div class="card" style="width:560px; max-width:90vw; margin:0;">
+        <h2>Lock Akses</h2>
+        <p style="font-size:12.5px; color:var(--text-dim); margin-top:-8px;">Salin script di bawah dan jalankan manual di database target. Setelah berhasil, klik "Mark as Locked".</p>
+        <button class="copy-btn" onclick="copyText('lock-script')">Copy script</button>
+        <div class="code-block" id="lock-script">—</div>
+        <div class="actions">
+          <button class="btn btn-secondary" onclick="closeLockModal()">Batal</button>
+          <button class="btn btn-primary" onclick="markAsLocked()">Mark as Locked</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Extend -->
+    <div id="modal-extend" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:50;">
+      <div class="card" style="width:560px; max-width:90vw; margin:0;">
+        <h2>Extend Akses</h2>
+        <div id="extend-form-area">
+          <div class="grid2">
+            <div class="field">
+              <label>Quarter Baru</label>
+              <select id="ext-quarter">
+                <option value="Q1">Q1 (Jan–Mar)</option>
+                <option value="Q2">Q2 (Apr–Jun)</option>
+                <option value="Q3">Q3 (Jul–Sep)</option>
+                <option value="Q4">Q4 (Okt–Des)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Tahun Baru</label>
+              <input type="text" id="ext-year" maxlength="4" placeholder="cth. 2026">
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="generateExtendScript()" style="width:100%;">Generate Script</button>
+        </div>
+        <div id="extend-script-area" class="hidden">
+          <p style="font-size:12.5px; color:var(--text-dim);" id="extend-script-note"></p>
+          <button class="copy-btn hidden" id="extend-copy-btn" onclick="copyText('extend-script')">Copy script</button>
+          <div class="code-block" id="extend-script">—</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" onclick="closeExtendModal()">Batal</button>
+          <button class="btn btn-primary hidden" id="extend-confirm-btn" onclick="confirmExtend()">Confirm Extend</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<script>
+let state = {};
+let activeActionId = null;
+
+/* ===== HELPERS ===== */
+async function apiGet(url){
+  const res = await fetch(url);
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error || 'Request gagal');
+  return data;
+}
+async function apiPost(url, body){
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {})
+  });
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error || 'Request gagal');
+  return data;
+}
+function showAlert(msg){
+  alert(msg); // sederhana dulu; bisa diganti toast nanti
+}
+
+/* ===== NAVIGATION ===== */
+function showPage(page){
+  document.getElementById('page-provisioning').classList.toggle('hidden', page !== 'provisioning');
+  document.getElementById('page-dashboard').classList.toggle('hidden', page !== 'dashboard');
+  document.getElementById('page-employee').classList.toggle('hidden', page !== 'employee');
+  document.getElementById('nav-provisioning').classList.toggle('active', page === 'provisioning');
+  document.getElementById('nav-dashboard').classList.toggle('active', page === 'dashboard');
+  document.getElementById('nav-employee').classList.toggle('active', page === 'employee');
+  if(page === 'dashboard') renderDashboard();
+  if(page === 'employee') renderEmployeeTable();
+  window.scrollTo(0,0);
+}
+
+/* ===== ROLE / ALLOWLIST HINTS (dbtype change) ===== */
+const roleHints = {
+  oracle: "Oracle: user otomatis mendapat role CONNECT secara default. Role di sini ditambahkan di atas CONNECT.",
+  mysql: "MySQL: nama role/privilege yang akan di-GRANT ke user ini.",
+  postgres: "PostgreSQL: nama role yang akan di-GRANT ke user ini."
+};
+const allowlistConfig = {
+  mysql: { label: "Host Allowlist (MySQL) *", hint: "Host/IP client yang diizinkan connect. Akan digunakan sebagai bagian dari username (cth. 'user'@'10.20.30.5'). Jangan gunakan '%' di production." },
+  postgres: { label: "Host Allowlist (PostgreSQL) *", hint: "IP/CIDR client yang diizinkan connect (cth. 10.20.30.0/24). DBA wajib mendaftarkan entry ini secara manual di pg_hba.conf — PostgreSQL tidak otomatis update file tersebut." },
+};
+
+document.getElementById('f-dbtype').addEventListener('change', function(){
+  const v = this.value;
+  document.getElementById('role-hint').textContent = v ? roleHints[v] : "Pilih database type dulu untuk melihat catatan role.";
+  const wrapper = document.getElementById('f-allowlist-wrapper');
+  const cfg = allowlistConfig[v];
+  if(cfg){
+    wrapper.classList.remove('hidden');
+    document.getElementById('f-allowlist-label').textContent = cfg.label;
+    document.getElementById('allowlist-hint').textContent = cfg.hint;
+  } else {
+    wrapper.classList.add('hidden');
+    document.getElementById('f-allowlist').value = '';
+  }
+});
+
+function quarterEndDate(quarter, year){
+  const map = { Q1: "31 Maret", Q2: "30 Juni", Q3: "30 September", Q4: "31 Desember" };
+  return map[quarter] ? map[quarter] + " " + year : "—";
+}
+document.getElementById('f-quarter').addEventListener('change', updateExpiryPreview);
+document.getElementById('f-year').addEventListener('input', updateExpiryPreview);
+function updateExpiryPreview(){
+  const q = document.getElementById('f-quarter').value;
+  const y = document.getElementById('f-year').value;
+  const el = document.getElementById('expiry-preview');
+  if(q && y && y.length === 4){
+    el.textContent = "Expiry: akhir " + q + " → " + quarterEndDate(q, y) + ", 23:59:59";
+  } else {
+    el.textContent = "Expiry akan dihitung sebagai akhir dari quarter yang dipilih.";
+  }
+}
+
+/* ===== EMPLOYEE AUTOCOMPLETE (search NIK / nama) — via API ===== */
+let searchDebounce = {};
+function searchEmployee(target){
+  const inputEl = document.getElementById('f-search-' + target);
+  const resultsEl = document.getElementById('f-search-' + target + '-results');
+  const q = inputEl.value.trim();
+
+  clearTimeout(searchDebounce[target]);
+  if(!q){
+    resultsEl.classList.add('hidden');
+    resultsEl.innerHTML = '';
+    return;
+  }
+
+  searchDebounce[target] = setTimeout(async () => {
+    try{
+      const matches = await apiGet('/api/employees/search?q=' + encodeURIComponent(q));
+      if(matches.length === 0){
+        resultsEl.innerHTML = '<div class="empty">Tidak ditemukan. Bisa diisi manual di bawah.</div>';
+        resultsEl.classList.remove('hidden');
+        return;
+      }
+      resultsEl.innerHTML = matches.map(e => `
+        <div class="item" onclick='selectEmployee("${target}", ${JSON.stringify(e.nik)})'>
+          <div class="nm">${e.nama}</div>
+          <div class="meta">${e.nik} · ${e.unit} / ${e.subunit}</div>
+        </div>
+      `).join('');
+      resultsEl.classList.remove('hidden');
+    } catch(err){
+      resultsEl.innerHTML = '<div class="empty">Gagal mencari: ' + err.message + '</div>';
+      resultsEl.classList.remove('hidden');
+    }
+  }, 250);
+}
+
+let lastSearchResults = {};
+async function selectEmployee(target, nik){
+  // ambil ulang detail dari hasil pencarian terakhir (sudah ada di DOM), fallback ke API
+  try {
+    const matches = await apiGet('/api/employees/search?q=' + encodeURIComponent(nik));
+    const e = matches.find(x => x.nik === nik) || matches[0];
+    if(!e) return;
+
+    if(target === 'req'){
+      document.getElementById('f-requester').value = e.nama;
+      document.getElementById('f-nik').value = e.nik;
+      document.getElementById('f-unit').value = e.unit;
+      document.getElementById('f-subunit').value = e.subunit;
+      document.getElementById('f-search-req').value = e.nama + ' (' + e.nik + ')';
+      document.getElementById('f-search-req-results').classList.add('hidden');
+    } else if(target === 'createdby'){
+      document.getElementById('f-createdby').value = e.nama;
+      document.getElementById('f-search-createdby').value = e.nama + ' (' + e.nik + ')';
+      document.getElementById('createdby-selected').textContent = 'Terpilih: ' + e.nama;
+      document.getElementById('f-search-createdby-results').classList.add('hidden');
+    }
+  } catch(err){
+    showAlert('Gagal mengambil data karyawan: ' + err.message);
+  }
+}
+
+document.addEventListener('click', function(e){
+  if(!e.target.closest('.field')){
+    document.querySelectorAll('.autocomplete-results').forEach(el => el.classList.add('hidden'));
+  }
+});
+
+/* ===== PROVISIONING FORM ===== */
+function validateForm(){
+  const required = ['f-requester','f-nik','f-unit','f-subunit','f-createdby','f-dbtype','f-host','f-username','f-role','f-quarter','f-year'];
+  for(const id of required){
+    const el = document.getElementById(id);
+    if(!el.value || el.value.trim()===''){
+      el.style.borderColor = 'var(--danger)';
+      el.focus();
+      return false;
+    }
+    el.style.borderColor = 'var(--border)';
+  }
+  if(document.getElementById('f-year').value.length !== 4){
+    document.getElementById('f-year').style.borderColor = 'var(--danger)';
+    return false;
+  }
+  const dbtype = document.getElementById('f-dbtype').value;
+  if(allowlistConfig[dbtype]){
+    const allowlistEl = document.getElementById('f-allowlist');
+    if(!allowlistEl.value || allowlistEl.value.trim() === ''){
+      allowlistEl.style.borderColor = 'var(--danger)';
+      allowlistEl.focus();
+      return false;
+    }
+    allowlistEl.style.borderColor = 'var(--border)';
+  }
+  return true;
+}
+
+async function goToPreview(){
+  if(!validateForm()) return;
+
+  const payload = {
+    requester: document.getElementById('f-requester').value.trim(),
+    nik: document.getElementById('f-nik').value.trim(),
+    unit: document.getElementById('f-unit').value.trim(),
+    subunit: document.getElementById('f-subunit').value.trim(),
+    created_by: document.getElementById('f-createdby').value.trim(),
+    dbtype: document.getElementById('f-dbtype').value,
+    host: document.getElementById('f-host').value.trim(),
+    username: document.getElementById('f-username').value.trim(),
+    role: document.getElementById('f-role').value.trim(),
+    allowlist: document.getElementById('f-allowlist').value.trim(),
+    quarter: document.getElementById('f-quarter').value,
+    year: document.getElementById('f-year').value.trim(),
+  };
+
+  const genBtn = document.querySelector('#step-form .btn-primary');
+  genBtn.disabled = true;
+  genBtn.textContent = 'Generating...';
+
+  try {
+    const result = await apiPost('/api/provisioning/generate-script', payload);
+    state = { ...payload, password: result.password, expiryISO: result.expiry_iso, expiryDisplay: result.expiry_display };
+
+    document.getElementById('gen-password').textContent = state.password;
+    document.getElementById('sum-requester').textContent = state.requester;
+    document.getElementById('sum-nik').textContent = state.nik;
+    document.getElementById('sum-unit').textContent = state.unit;
+    document.getElementById('sum-subunit').textContent = state.subunit;
+    document.getElementById('sum-createdby').textContent = state.created_by;
+    document.getElementById('sum-dbtype').textContent = state.dbtype;
+    document.getElementById('sum-host').textContent = state.host;
+    document.getElementById('sum-username').textContent = state.username;
+    document.getElementById('sum-role').textContent = state.role || '(tidak diisi)';
+    const allowlistRow = document.getElementById('sum-allowlist-row');
+    if(state.allowlist){
+      allowlistRow.classList.remove('hidden');
+      document.getElementById('sum-allowlist').textContent = state.allowlist;
+    } else {
+      allowlistRow.classList.add('hidden');
+    }
+    document.getElementById('sum-expiry').textContent = state.expiryDisplay;
+    document.getElementById('sql-script').textContent = result.script;
+
+    document.getElementById('step-form').classList.add('hidden');
+    document.getElementById('step-preview').classList.remove('hidden');
+    window.scrollTo(0,0);
+  } catch(err){
+    showAlert('Gagal generate script: ' + err.message);
+  } finally {
+    genBtn.disabled = false;
+    genBtn.textContent = 'Generate Script →';
+  }
+}
+
+function backToForm(){
+  document.getElementById('step-preview').classList.add('hidden');
+  document.getElementById('step-form').classList.remove('hidden');
+  window.scrollTo(0,0);
+}
+
+async function confirmSave(){
+  const btn = document.querySelector('#step-preview .btn-primary');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  try {
+    const payload = { ...state, expiry_iso: state.expiryISO };
+    const result = await apiPost('/api/provisioning/save', payload);
+    state.id = result.id;
+    state.createdAtDisplay = new Date().toISOString().slice(0,19).replace('T',' ');
+
+    document.getElementById('tr-id').textContent = '#' + state.id;
+    document.getElementById('tr-username').textContent = state.username;
+    document.getElementById('tr-requester').textContent = state.requester;
+    document.getElementById('tr-nik').textContent = state.nik;
+    document.getElementById('tr-unit').textContent = state.unit;
+    document.getElementById('tr-subunit').textContent = state.subunit;
+    document.getElementById('tr-createdby').textContent = state.created_by;
+    document.getElementById('tr-dbtype').textContent = state.dbtype;
+    document.getElementById('tr-createdat').textContent = state.createdAtDisplay;
+    document.getElementById('tr-expiry').textContent = state.expiryDisplay;
+    document.getElementById('tr-status').textContent = 'PENDING';
+    document.getElementById('tr-status').className = 'pill pill-pending';
+    document.getElementById('confirm-exec-btn').disabled = false;
+    document.getElementById('confirm-exec-btn').textContent = 'Confirm Executed';
+
+    document.getElementById('step-preview').classList.add('hidden');
+    document.getElementById('step-saved').classList.remove('hidden');
+    window.scrollTo(0,0);
+  } catch(err){
+    showAlert('Gagal menyimpan: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Confirm & Save to Tracking';
+  }
+}
+
+async function confirmExecuted(){
+  try {
+    await apiPost(`/api/tracking/${state.id}/mark-executed`);
+    document.getElementById('tr-status').textContent = 'ACTIVE';
+    document.getElementById('tr-status').className = 'pill pill-active';
+    document.getElementById('confirm-exec-btn').disabled = true;
+    document.getElementById('confirm-exec-btn').textContent = '✓ Executed';
+  } catch(err){
+    showAlert('Gagal update status: ' + err.message);
+  }
+}
+
+function resetForm(){
+  document.querySelectorAll('#step-form input[type=text]').forEach(el=>{
+    el.value='';
+    el.style.borderColor = 'var(--border)';
+  });
+  document.getElementById('f-createdby').value = '';
+  document.getElementById('createdby-selected').textContent = '';
+  document.getElementById('f-dbtype').value='';
+  document.getElementById('f-quarter').value='';
+  document.getElementById('f-allowlist').value='';
+  document.getElementById('f-allowlist-wrapper').classList.add('hidden');
+  document.getElementById('role-hint').textContent = "Pilih database type dulu untuk melihat catatan role.";
+  document.getElementById('expiry-preview').textContent = "Expiry akan dihitung sebagai akhir dari quarter yang dipilih.";
+}
+
+function startOver(){
+  resetForm();
+  document.getElementById('step-saved').classList.add('hidden');
+  document.getElementById('step-form').classList.remove('hidden');
+  window.scrollTo(0,0);
+}
+
+function copyText(elId){
+  const el = document.getElementById(elId);
+  const text = el.innerText || el.textContent;
+  navigator.clipboard.writeText(text).then(()=>{
+    const original = event.target.textContent;
+    event.target.textContent = 'Copied!';
+    setTimeout(()=>{ event.target.textContent = original; }, 1200);
+  });
+}
+
+/* ===== DASHBOARD ===== */
+const statusPillClass = {
+  PENDING: 'pill-pending',
+  ACTIVE: 'pill-active',
+  EXTENDED: 'pill-active',
+  LOCKED: 'pill-pending',
+};
+
+function actionButtons(rec){
+  let btns = `<button class="btn btn-secondary" style="padding:5px 9px; font-size:11.5px;" onclick="viewDetail(${rec.id})">Detail</button>`;
+  if(rec.status === 'PENDING'){
+    btns += ` <button class="btn btn-primary" style="padding:5px 9px; font-size:11.5px;" onclick="dashMarkExecuted(${rec.id})">Mark Executed</button>`;
+  }
+  if(rec.status === 'ACTIVE' || rec.status === 'EXTENDED'){
+    btns += ` <button class="btn btn-secondary" style="padding:5px 9px; font-size:11.5px;" onclick="openLockModal(${rec.id})">Lock Now</button>`;
+    btns += ` <button class="btn btn-secondary" style="padding:5px 9px; font-size:11.5px;" onclick="openExtendModal(${rec.id})">Extend</button>`;
+  }
+  if(rec.status === 'LOCKED'){
+    btns += ` <button class="btn btn-secondary" style="padding:5px 9px; font-size:11.5px;" onclick="openExtendModal(${rec.id})">Extend (Unlock)</button>`;
+  }
+  return btns;
+}
+
+let currentDashboardData = [];
+
+async function renderDashboard(){
+  const search = document.getElementById('dash-search').value.trim();
+  const filterStatus = document.getElementById('dash-filter-status').value;
+
+  const params = new URLSearchParams();
+  if(search) params.set('search', search);
+  if(filterStatus) params.set('status', filterStatus);
+
+  const tbody = document.getElementById('dash-tbody');
+  const empty = document.getElementById('dash-empty');
+
+  try {
+    const rows = await apiGet('/api/tracking?' + params.toString());
+    currentDashboardData = rows;
+
+    if(rows.length === 0){
+      tbody.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+
+    tbody.innerHTML = rows.map(r => `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:10px 14px; font-family:var(--mono); color:var(--text-dim);">#${r.id}</td>
+        <td style="padding:10px 14px; font-family:var(--mono);">${r.username}</td>
+        <td style="padding:10px 14px; font-family:var(--mono); color:var(--text-dim);">${r.nik}</td>
+        <td style="padding:10px 14px;">${r.requester}</td>
+        <td style="padding:10px 14px; color:var(--text-dim);">${r.unit}</td>
+        <td style="padding:10px 14px; color:var(--text-dim);">${r.subunit}</td>
+        <td style="padding:10px 14px; text-transform:uppercase; font-size:11px; color:var(--text-dim);">${r.db_type}</td>
+        <td style="padding:10px 14px; font-family:var(--mono); color:var(--text-dim);">${r.db_host}</td>
+        <td style="padding:10px 14px; font-family:var(--mono); font-size:11.5px; color:var(--text-dim);">${r.created_at}</td>
+        <td style="padding:10px 14px; font-family:var(--mono); font-size:11.5px;">${r.expiry_at}</td>
+        <td style="padding:10px 14px;"><span class="pill ${statusPillClass[r.status]}">${r.status}</span></td>
+        <td style="padding:10px 14px; color:var(--text-dim);">${r.created_by}</td>
+        <td style="padding:10px 14px; white-space:nowrap;">${actionButtons(r)}</td>
+      </tr>
+    `).join('');
+  } catch(err){
+    tbody.innerHTML = '';
+    empty.classList.remove('hidden');
+    empty.textContent = 'Gagal memuat data: ' + err.message;
+  }
+}
+
+function viewDetail(id){
+  const r = currentDashboardData.find(x => x.id === id);
+  if(!r) return;
+  document.getElementById('modal-title').textContent = 'Detail Akses — #' + r.id;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="meta-row"><span class="k">Username</span><span class="v">${r.username}</span></div>
+    <div class="meta-row"><span class="k">Nama Pengguna</span><span class="v">${r.requester}</span></div>
+    <div class="meta-row"><span class="k">NIK</span><span class="v">${r.nik}</span></div>
+    <div class="meta-row"><span class="k">Unit</span><span class="v">${r.unit}</span></div>
+    <div class="meta-row"><span class="k">Sub Unit</span><span class="v">${r.subunit}</span></div>
+    <div class="meta-row"><span class="k">DB Type</span><span class="v">${r.db_type}</span></div>
+    <div class="meta-row"><span class="k">Host</span><span class="v">${r.db_host}</span></div>
+    <div class="meta-row"><span class="k">Role</span><span class="v">${r.role_name || '(tidak diisi)'}</span></div>
+    <div class="meta-row"><span class="k">Host Allowlist</span><span class="v">${r.host_allowlist || '(n/a)'}</span></div>
+    <div class="meta-row"><span class="k">Created At</span><span class="v">${r.created_at}</span></div>
+    <div class="meta-row"><span class="k">Expiry At</span><span class="v">${r.expiry_at}</span></div>
+    <div class="meta-row"><span class="k">Status</span><span class="v"><span class="pill ${statusPillClass[r.status]}">${r.status}</span></span></div>
+    <div class="meta-row"><span class="k">Created By</span><span class="v">${r.created_by}</span></div>
+  `;
+  document.getElementById('modal-overlay').classList.remove('hidden');
+}
+function closeModal(){
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+async function dashMarkExecuted(id){
+  try {
+    await apiPost(`/api/tracking/${id}/mark-executed`);
+    renderDashboard();
+  } catch(err){
+    showAlert('Gagal: ' + err.message);
+  }
+}
+
+/* ===== LOCK NOW ===== */
+async function openLockModal(id){
+  activeActionId = id;
+  try {
+    const result = await apiGet(`/api/tracking/${id}/lock-script`);
+    document.getElementById('lock-script').textContent = result.script;
+    document.getElementById('modal-lock').classList.remove('hidden');
+  } catch(err){
+    showAlert('Gagal mengambil script: ' + err.message);
+  }
+}
+function closeLockModal(){
+  document.getElementById('modal-lock').classList.add('hidden');
+  activeActionId = null;
+}
+async function markAsLocked(){
+  try {
+    await apiPost(`/api/tracking/${activeActionId}/mark-locked`);
+    closeLockModal();
+    renderDashboard();
+  } catch(err){
+    showAlert('Gagal update status: ' + err.message);
+  }
+}
+
+/* ===== EXTEND ===== */
+function openExtendModal(id){
+  activeActionId = id;
+  document.getElementById('extend-form-area').classList.remove('hidden');
+  document.getElementById('extend-script-area').classList.add('hidden');
+  document.getElementById('extend-confirm-btn').classList.add('hidden');
+  document.getElementById('extend-copy-btn').classList.add('hidden');
+  document.getElementById('ext-year').value = '';
+  document.getElementById('modal-extend').classList.remove('hidden');
+}
+function closeExtendModal(){
+  document.getElementById('modal-extend').classList.add('hidden');
+  activeActionId = null;
+}
+
+async function generateExtendScript(){
+  const q = document.getElementById('ext-quarter').value;
+  const y = document.getElementById('ext-year').value.trim();
+  if(!y || y.length !== 4){
+    document.getElementById('ext-year').style.borderColor = 'var(--danger)';
+    return;
+  }
+  try {
+    const result = await apiPost(`/api/tracking/${activeActionId}/extend-script`, { quarter: q, year: y });
+    document.getElementById('extend-form-area').classList.add('hidden');
+    document.getElementById('extend-script-area').classList.remove('hidden');
+    document.getElementById('extend-confirm-btn').classList.remove('hidden');
+
+    if(result.script){
+      document.getElementById('extend-script-note').textContent = result.was_locked
+        ? 'User saat ini terkunci. Jalankan script unlock + set expiry baru ini di database target.'
+        : 'Jalankan script ini di database target untuk set expiry baru.';
+      document.getElementById('extend-script').textContent = result.script;
+      document.getElementById('extend-copy-btn').classList.remove('hidden');
+    } else {
+      document.getElementById('extend-script-note').textContent = 'Database ini tidak punya native expiry — tidak ada script yang perlu dijalankan. Tracking table akan diupdate langsung.';
+      document.getElementById('extend-script').textContent = '-- tidak ada perubahan di sisi database, hanya update tracking table';
+      document.getElementById('extend-copy-btn').classList.add('hidden');
+    }
+    window._pendingExtend = { expiry_iso: result.expiry_iso, expiry_display: result.expiry_display };
+  } catch(err){
+    showAlert('Gagal generate script: ' + err.message);
+  }
+}
+
+async function confirmExtend(){
+  try {
+    await apiPost(`/api/tracking/${activeActionId}/confirm-extend`, { expiry_iso: window._pendingExtend.expiry_iso });
+    closeExtendModal();
+    renderDashboard();
+  } catch(err){
+    showAlert('Gagal extend: ' + err.message);
+  }
+}
+
+/* ===== DATA KARYAWAN (ADMINISTRASI) ===== */
+let pendingEmployeeUpload = null; // {header, all_rows}
+
+function triggerEmployeeFileInput(){
+  document.getElementById('emp-file-input').click();
+}
+
+async function handleEmployeeFile(fileInput){
+  const file = fileInput.files[0];
+  if(!file) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  document.getElementById('emp-upload-zone').innerHTML = '<p style="margin:0; color:var(--text-dim);">Membaca file...</p>';
+
+  try {
+    const res = await fetch('/api/employees/upload-preview', { method: 'POST', body: formData });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || 'Gagal membaca file');
+
+    pendingEmployeeUpload = data;
+    document.getElementById('emp-upload-zone').innerHTML =
+      `<p style="margin:0; color:var(--accent);">✓ File terbaca: ${file.name} (${data.total_rows} baris data, ${data.header.length} kolom)</p>`;
+
+    // isi dropdown mapping berdasarkan header asli
+    const selects = ['map-nik','map-nama','map-unit','map-subunit'];
+    const defaultGuess = { 'map-nik': 0, 'map-nama': 1, 'map-unit': 2, 'map-subunit': 3 };
+    selects.forEach(id => {
+      const sel = document.getElementById(id);
+      sel.innerHTML = data.header.map((h, idx) =>
+        `<option value="${idx}" ${idx === defaultGuess[id] ? 'selected' : ''}>Kolom ${String.fromCharCode(65+idx)} — ${h || '(kosong)'}</option>`
+      ).join('');
+    });
+
+    document.getElementById('emp-mapping-card').classList.remove('hidden');
+  } catch(err){
+    showAlert('Gagal membaca file: ' + err.message);
+    cancelEmployeeUpload();
+  }
+}
+
+function previewEmployeeMapping(){
+  if(!pendingEmployeeUpload) return;
+  const idxNik = parseInt(document.getElementById('map-nik').value);
+  const idxNama = parseInt(document.getElementById('map-nama').value);
+  const idxUnit = parseInt(document.getElementById('map-unit').value);
+  const idxSubunit = parseInt(document.getElementById('map-subunit').value);
+
+  window._employeeMapping = { nik: idxNik, nama: idxNama, unit: idxUnit, subunit: idxSubunit };
+
+  const rows = pendingEmployeeUpload.all_rows;
+  document.getElementById('emp-preview-count').textContent = rows.length;
+  document.getElementById('emp-preview-tbody').innerHTML = rows.slice(0,3).map(row => `
+    <tr><td>${row[idxNik] ?? ''}</td><td>${row[idxNama] ?? ''}</td><td>${row[idxUnit] ?? ''}</td><td>${row[idxSubunit] ?? ''}</td></tr>
+  `).join('');
+
+  document.getElementById('emp-preview-card').classList.remove('hidden');
+}
+
+function cancelEmployeeUpload(){
+  pendingEmployeeUpload = null;
+  window._employeeMapping = null;
+  document.getElementById('emp-mapping-card').classList.add('hidden');
+  document.getElementById('emp-preview-card').classList.add('hidden');
+  document.getElementById('emp-upload-zone').innerHTML =
+    '<p style="margin:0 0 10px 0;">Pilih file .xlsx berisi kolom NIK, Nama Karyawan, Nama Unit, Nama Sub Unit</p>' +
+    '<input type="file" id="emp-file-input" accept=".xlsx" style="display:none" onchange="handleEmployeeFile(this)">' +
+    '<button class="btn btn-secondary" onclick="triggerEmployeeFileInput()">Pilih File</button>';
+}
+
+async function confirmEmployeeReplace(){
+  const btn = document.querySelector('#emp-preview-card .btn-primary');
+  btn.disabled = true;
+  btn.textContent = 'Menyimpan...';
+  try {
+    const result = await apiPost('/api/employees/replace', {
+      mapping: window._employeeMapping,
+      rows: pendingEmployeeUpload.all_rows,
+    });
+    showAlert(`Berhasil mengganti data karyawan. Total ${result.replaced} baris tersimpan.`);
+    cancelEmployeeUpload();
+    renderEmployeeTable();
+  } catch(err){
+    showAlert('Gagal menyimpan: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Confirm Replace';
+  }
+}
+
+async function renderEmployeeTable(){
+  const search = document.getElementById('emp-table-search').value.trim();
+  try {
+    const result = await apiGet('/api/employees?search=' + encodeURIComponent(search));
+    document.getElementById('emp-current-count').textContent = result.count;
+    document.getElementById('emp-table-tbody').innerHTML = result.data.map(e => `
+      <tr><td style="font-family:var(--mono);">${e.nik}</td><td>${e.nama}</td><td>${e.unit}</td><td>${e.subunit}</td></tr>
+    `).join('');
+  } catch(err){
+    document.getElementById('emp-table-tbody').innerHTML = `<tr><td colspan="4" style="color:var(--danger);">Gagal memuat: ${err.message}</td></tr>`;
+  }
+}
+</script>
+</body>
+</html>

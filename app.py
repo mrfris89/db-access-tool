@@ -1,0 +1,465 @@
+"""
+app.py
+Main Flask application — DB Access Provisioning Tool.
+
+Aplikasi ini TIDAK pernah connect/eksekusi apapun ke database target
+(Oracle/MySQL/PostgreSQL prod). Aplikasi hanya:
+  1. Generate script SQL untuk dicopy manual oleh DBA
+  2. Simpan/baca data tracking dari MySQL internal (terpisah, lihat db.py)
+  3. Tidak ada login/auth — semua DBA yang punya akses ke tools ini dianggap trusted
+"""
+
+import os
+from datetime import datetime
+
+from flask import Flask, jsonify, request, render_template
+from openpyxl import load_workbook
+
+import db
+import scripts
+
+app = Flask(__name__)
+
+ALLOWED_DB_TYPES = {"oracle", "mysql", "postgres"}
+ALLOWED_STATUS = {"PENDING", "ACTIVE", "EXTENDED", "LOCKED"}
+
+
+# ---------------------------------------------------------------------------
+# Halaman utama (single page, render template lalu semua interaksi via JS fetch)
+# ---------------------------------------------------------------------------
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/healthz")
+def healthz():
+    ok = db.check_connection()
+    return jsonify({"db_connected": ok}), (200 if ok else 503)
+
+
+# ---------------------------------------------------------------------------
+# EMPLOYEE MASTER — lookup & administrasi
+# ---------------------------------------------------------------------------
+@app.route("/api/employees/search")
+def search_employees():
+    q = request.args.get("q", "").strip()
+    if not q:
+        return jsonify([])
+
+    conn = db.get_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        like = f"%{q}%"
+        cur.execute(
+            """
+            SELECT nik, nama, unit, subunit
+            FROM employee_master
+            WHERE nik LIKE %s OR nama LIKE %s
+            ORDER BY nama
+            LIMIT 8
+            """,
+            (like, like),
+        )
+        rows = cur.fetchall()
+        return jsonify(rows)
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/employees", methods=["GET"])
+def list_employees():
+    search = request.args.get("search", "").strip()
+    conn = db.get_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        if search:
+            like = f"%{search}%"
+            cur.execute(
+                "SELECT nik, nama, unit, subunit FROM employee_master "
+                "WHERE nik LIKE %s OR nama LIKE %s ORDER BY nama",
+                (like, like),
+            )
+        else:
+            cur.execute("SELECT nik, nama, unit, subunit FROM employee_master ORDER BY nama")
+        rows = cur.fetchall()
+        return jsonify({"count": len(rows), "data": rows})
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/employees/upload-preview", methods=["POST"])
+def upload_preview_employees():
+    """
+    Terima file excel, baca header + beberapa baris pertama,
+    kembalikan mentahan agar frontend bisa tampilkan UI mapping kolom.
+    File disimpan sementara di memory request, TIDAK ditulis ke disk.
+    """
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"error": "File tidak ditemukan"}), 400
+
+    try:
+        wb = load_workbook(file, read_only=True, data_only=True)
+        ws = wb.active
+        rows = []
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            rows.append([("" if c is None else str(c)) for c in row])
+            if i >= 500:  # safety limit baris yang dibaca untuk preview
+                break
+    except Exception as e:
+        return jsonify({"error": f"Gagal membaca file: {e}"}), 400
+
+    if len(rows) < 1:
+        return jsonify({"error": "File kosong"}), 400
+
+    header = rows[0]
+    data_rows = rows[1:]
+
+    return jsonify(
+        {
+            "header": header,
+            "total_rows": len(data_rows),
+            "preview_rows": data_rows[:3],
+            # seluruh data dikirim balik ke frontend; karena ini internal tool
+            # dengan volume kecil (~300 baris), tidak perlu staging di server.
+            "all_rows": data_rows,
+        }
+    )
+
+
+@app.route("/api/employees/replace", methods=["POST"])
+def replace_employees():
+    """
+    Body JSON:
+    {
+      "mapping": {"nik": 0, "nama": 1, "unit": 2, "subunit": 3},
+      "rows": [["198501...", "Budi", "TI", "Backend"], ...]
+    }
+    Replace TOTAL isi employee_master.
+    """
+    body = request.get_json(force=True)
+    mapping = body.get("mapping")
+    rows = body.get("rows")
+
+    if not mapping or rows is None:
+        return jsonify({"error": "mapping dan rows wajib diisi"}), 400
+
+    required_keys = {"nik", "nama", "unit", "subunit"}
+    if not required_keys.issubset(mapping.keys()):
+        return jsonify({"error": f"mapping harus berisi: {required_keys}"}), 400
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        conn.start_transaction()
+        cur.execute("DELETE FROM employee_master")
+        insert_sql = "INSERT INTO employee_master (nik, nama, unit, subunit) VALUES (%s, %s, %s, %s)"
+        values = []
+        for row in rows:
+            try:
+                nik = str(row[mapping["nik"]]).strip()
+                nama = str(row[mapping["nama"]]).strip()
+                unit = str(row[mapping["unit"]]).strip()
+                subunit = str(row[mapping["subunit"]]).strip()
+            except IndexError:
+                continue
+            if not nik:
+                continue
+            values.append((nik, nama, unit, subunit))
+        if values:
+            cur.executemany(insert_sql, values)
+        conn.commit()
+        return jsonify({"replaced": len(values)})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# PROVISIONING
+# ---------------------------------------------------------------------------
+@app.route("/api/provisioning/generate-script", methods=["POST"])
+def generate_provisioning_script():
+    """
+    Generate script + password TANPA simpan ke DB.
+    DBA preview dulu sebelum confirm-save.
+    """
+    body = request.get_json(force=True)
+
+    required_fields = [
+        "requester", "nik", "unit", "subunit", "created_by",
+        "dbtype", "host", "username", "role", "quarter", "year",
+    ]
+    missing = [f for f in required_fields if not str(body.get(f, "")).strip()]
+    if missing:
+        return jsonify({"error": f"Field wajib belum diisi: {missing}"}), 400
+
+    dbtype = body["dbtype"]
+    if dbtype not in ALLOWED_DB_TYPES:
+        return jsonify({"error": "dbtype tidak valid"}), 400
+
+    if dbtype in ("mysql", "postgres") and not str(body.get("allowlist", "")).strip():
+        return jsonify({"error": "Host allowlist wajib diisi untuk MySQL/PostgreSQL"}), 400
+
+    quarter = body["quarter"]
+    year = body["year"]
+    if quarter not in ("Q1", "Q2", "Q3", "Q4") or not year.isdigit() or len(year) != 4:
+        return jsonify({"error": "Quarter/Tahun tidak valid"}), 400
+
+    expiry_display, expiry_iso = scripts.quarter_end_date(quarter, year)
+    password = scripts.generate_password()
+
+    script_data = {
+        "dbtype": dbtype,
+        "username": body["username"].strip(),
+        "role": body.get("role", "").strip(),
+        "allowlist": body.get("allowlist", "").strip(),
+        "expiry_iso": expiry_iso,
+    }
+    script_text = scripts.build_provisioning_script(script_data, password)
+
+    return jsonify(
+        {
+            "password": password,
+            "script": script_text,
+            "expiry_display": expiry_display,
+            "expiry_iso": expiry_iso,
+        }
+    )
+
+
+@app.route("/api/provisioning/save", methods=["POST"])
+def save_provisioning():
+    """
+    Simpan record ke access_tracking dengan status PENDING.
+    Dipanggil setelah DBA klik "Confirm & Save" di preview screen.
+    Password TIDAK disimpan di sini (sesuai keputusan: hanya ditampilkan di screen).
+    """
+    body = request.get_json(force=True)
+
+    required_fields = [
+        "requester", "nik", "unit", "subunit", "created_by",
+        "dbtype", "host", "username", "role", "expiry_iso",
+    ]
+    missing = [f for f in required_fields if not str(body.get(f, "")).strip()]
+    if missing:
+        return jsonify({"error": f"Field wajib belum diisi: {missing}"}), 400
+
+    dbtype = body["dbtype"]
+    if dbtype not in ALLOWED_DB_TYPES:
+        return jsonify({"error": "dbtype tidak valid"}), 400
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO access_tracking
+                (username, nik, requester, unit, subunit, db_type, db_host,
+                 role_name, host_allowlist, created_at, expiry_at, status, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', %s)
+            """,
+            (
+                body["username"].strip(),
+                body["nik"].strip(),
+                body["requester"].strip(),
+                body["unit"].strip(),
+                body["subunit"].strip(),
+                dbtype,
+                body["host"].strip(),
+                body["role"].strip(),
+                body.get("allowlist", "").strip() or None,
+                datetime.now(),
+                body["expiry_iso"],
+                body["created_by"].strip(),
+            ),
+        )
+        conn.commit()
+        new_id = cur.lastrowid
+        return jsonify({"id": new_id, "status": "PENDING"})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# DASHBOARD
+# ---------------------------------------------------------------------------
+@app.route("/api/tracking", methods=["GET"])
+def list_tracking():
+    status_filter = request.args.get("status", "").strip()
+    search = request.args.get("search", "").strip()
+
+    query = "SELECT * FROM access_tracking WHERE 1=1"
+    params = []
+
+    if status_filter and status_filter in ALLOWED_STATUS:
+        query += " AND status = %s"
+        params.append(status_filter)
+
+    if search:
+        query += " AND (username LIKE %s OR requester LIKE %s)"
+        like = f"%{search}%"
+        params += [like, like]
+
+    query += " ORDER BY id DESC"
+
+    conn = db.get_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        for r in rows:
+            if isinstance(r.get("created_at"), datetime):
+                r["created_at"] = r["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+            if isinstance(r.get("expiry_at"), datetime):
+                r["expiry_at"] = r["expiry_at"].strftime("%Y-%m-%d %H:%M:%S")
+        return jsonify(rows)
+    finally:
+        cur.close()
+        conn.close()
+
+
+def _get_tracking_row(tracking_id):
+    conn = db.get_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("SELECT * FROM access_tracking WHERE id = %s", (tracking_id,))
+        return cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/tracking/<int:tracking_id>/mark-executed", methods=["POST"])
+def mark_executed(tracking_id):
+    record = _get_tracking_row(tracking_id)
+    if not record:
+        return jsonify({"error": "Record tidak ditemukan"}), 404
+    if record["status"] != "PENDING":
+        return jsonify({"error": "Hanya record berstatus PENDING yang bisa di-mark executed"}), 400
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("UPDATE access_tracking SET status = 'ACTIVE' WHERE id = %s", (tracking_id,))
+        conn.commit()
+        return jsonify({"id": tracking_id, "status": "ACTIVE"})
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/tracking/<int:tracking_id>/lock-script", methods=["GET"])
+def get_lock_script(tracking_id):
+    record = _get_tracking_row(tracking_id)
+    if not record:
+        return jsonify({"error": "Record tidak ditemukan"}), 404
+    script_text = scripts.build_lock_script(record)
+    return jsonify({"script": script_text})
+
+
+@app.route("/api/tracking/<int:tracking_id>/mark-locked", methods=["POST"])
+def mark_locked(tracking_id):
+    record = _get_tracking_row(tracking_id)
+    if not record:
+        return jsonify({"error": "Record tidak ditemukan"}), 404
+    if record["status"] not in ("ACTIVE", "EXTENDED"):
+        return jsonify({"error": "Hanya record ACTIVE/EXTENDED yang bisa di-lock"}), 400
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("UPDATE access_tracking SET status = 'LOCKED' WHERE id = %s", (tracking_id,))
+        conn.commit()
+        return jsonify({"id": tracking_id, "status": "LOCKED"})
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/tracking/<int:tracking_id>/extend-script", methods=["POST"])
+def get_extend_script(tracking_id):
+    """
+    Body JSON: {"quarter": "Q4", "year": "2026"}
+    Return script (atau null kalau tidak ada yang perlu dijalankan) + expiry baru.
+    """
+    record = _get_tracking_row(tracking_id)
+    if not record:
+        return jsonify({"error": "Record tidak ditemukan"}), 404
+
+    body = request.get_json(force=True)
+    quarter = body.get("quarter")
+    year = body.get("year")
+    if quarter not in ("Q1", "Q2", "Q3", "Q4") or not year or not str(year).isdigit() or len(str(year)) != 4:
+        return jsonify({"error": "Quarter/Tahun tidak valid"}), 400
+
+    expiry_display, expiry_iso = scripts.quarter_end_date(quarter, year)
+    script_text = scripts.build_extend_script(record, expiry_iso)
+
+    return jsonify(
+        {
+            "script": script_text,  # null kalau tidak perlu dijalankan
+            "expiry_display": expiry_display,
+            "expiry_iso": expiry_iso,
+            "was_locked": record["status"] == "LOCKED",
+        }
+    )
+
+
+@app.route("/api/tracking/<int:tracking_id>/confirm-extend", methods=["POST"])
+def confirm_extend(tracking_id):
+    """
+    Body JSON: {"expiry_iso": "2026-12-31 23:59:59"}
+    Update expiry_at dan status -> EXTENDED.
+    """
+    record = _get_tracking_row(tracking_id)
+    if not record:
+        return jsonify({"error": "Record tidak ditemukan"}), 404
+
+    body = request.get_json(force=True)
+    expiry_iso = body.get("expiry_iso")
+    if not expiry_iso:
+        return jsonify({"error": "expiry_iso wajib diisi"}), 400
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE access_tracking SET expiry_at = %s, status = 'EXTENDED' WHERE id = %s",
+            (expiry_iso, tracking_id),
+        )
+        conn.commit()
+        return jsonify({"id": tracking_id, "status": "EXTENDED", "expiry_at": expiry_iso})
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# STARTUP
+# ---------------------------------------------------------------------------
+def initialize():
+    """Dipanggil sekali saat container start — pastikan schema ada."""
+    try:
+        db.init_schema()
+        print("[startup] Schema OK")
+    except Exception as e:
+        print(f"[startup] WARNING: gagal inisialisasi schema: {e}")
+        print("[startup] Aplikasi tetap jalan, tapi pastikan DB sudah benar sebelum digunakan.")
+
+
+initialize()
+
+if __name__ == "__main__":
+    port = int(os.environ.get("APP_PORT", "5010"))
+    app.run(host="0.0.0.0", port=port, debug=False)
