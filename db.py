@@ -66,6 +66,7 @@ def init_schema():
                 username        VARCHAR(100) NOT NULL,
                 nik             VARCHAR(30)  NOT NULL,
                 requester       VARCHAR(150) NOT NULL,
+                divisi          VARCHAR(150) NOT NULL DEFAULT '',
                 unit            VARCHAR(150) NOT NULL,
                 subunit         VARCHAR(150) NOT NULL,
                 db_type         ENUM('oracle','mysql','postgres') NOT NULL,
@@ -82,14 +83,96 @@ def init_schema():
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS employee_master (
-                nik      VARCHAR(30)  PRIMARY KEY,
-                nama     VARCHAR(150) NOT NULL,
-                unit     VARCHAR(150) NOT NULL,
-                subunit  VARCHAR(150) NOT NULL
+                nik           VARCHAR(30)  PRIMARY KEY,
+                nama          VARCHAR(150) NOT NULL,
+                divisi        VARCHAR(150) NOT NULL DEFAULT '',
+                unit          VARCHAR(150) NOT NULL,
+                subunit       VARCHAR(150) NOT NULL,
+                last_updated  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                              ON UPDATE CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS role_code_mapping (
+                name  VARCHAR(150) PRIMARY KEY,
+                code  VARCHAR(3) NOT NULL UNIQUE
             )
             """
         )
         conn.commit()
+        _migrate_add_last_updated(conn)
+        _migrate_add_divisi(conn)
     finally:
         cur.close()
         conn.close()
+
+
+def _migrate_add_divisi(conn):
+    """Migrasi untuk database yang dibuat sebelum kolom divisi ditambahkan."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'employee_master'
+              AND COLUMN_NAME = 'divisi'
+            """,
+            (DB_NAME,),
+        )
+        exists = cur.fetchone()[0] > 0
+        if not exists:
+            cur.execute(
+                "ALTER TABLE employee_master ADD COLUMN divisi VARCHAR(150) NOT NULL DEFAULT '' AFTER nama"
+            )
+            conn.commit()
+            print("[migration] Kolom divisi ditambahkan ke employee_master")
+
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'access_tracking'
+              AND COLUMN_NAME = 'divisi'
+            """,
+            (DB_NAME,),
+        )
+        exists_tracking = cur.fetchone()[0] > 0
+        if not exists_tracking:
+            cur.execute(
+                "ALTER TABLE access_tracking ADD COLUMN divisi VARCHAR(150) NOT NULL DEFAULT '' AFTER requester"
+            )
+            conn.commit()
+            print("[migration] Kolom divisi ditambahkan ke access_tracking")
+    finally:
+        cur.close()
+
+
+def _migrate_add_last_updated(conn):
+    """
+    Migrasi untuk database yang dibuat sebelum kolom last_updated ditambahkan.
+    Aman dijalankan berulang kali (cek dulu sebelum ALTER).
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'employee_master'
+              AND COLUMN_NAME = 'last_updated'
+            """,
+            (DB_NAME,),
+        )
+        exists = cur.fetchone()[0] > 0
+        if not exists:
+            cur.execute(
+                """
+                ALTER TABLE employee_master
+                ADD COLUMN last_updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                ON UPDATE CURRENT_TIMESTAMP
+                """
+            )
+            conn.commit()
+            print("[migration] Kolom last_updated ditambahkan ke employee_master")
+    finally:
+        cur.close()

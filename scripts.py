@@ -33,6 +33,76 @@ def generate_password(length=12):
     return "".join(pw_chars)
 
 
+VOWELS = set("AEIOU")
+
+
+def generate_role_code_candidates(name: str):
+    """
+    Generate kandidat kode 3 huruf dari sebuah nama (unit/subunit),
+    urut berdasarkan prioritas. Dipakai untuk role name suggestion.
+    """
+    cleaned = name.replace("&", " ").replace(",", " ")
+    words = ["".join(c for c in w if c.isalpha()) for w in cleaned.split()]
+    words = [w for w in words if w]
+    if not words:
+        return ["XXX"]
+
+    candidates = []
+
+    if len(words) >= 3:
+        candidates.append(words[0][0] + words[1][0] + words[2][0])
+    if len(words) == 2:
+        candidates.append(words[0][0] + words[1][:2])
+        candidates.append(words[0][:2] + words[1][0])
+    if len(words) == 1:
+        candidates.append(words[0][:3])
+
+    first = words[0]
+    no_vowel = first[0] + "".join(c for c in first[1:] if c.upper() not in VOWELS)
+    candidates.append(no_vowel[:3])
+    candidates.append(first[:3])
+
+    if len(words) >= 2:
+        candidates.append(first[0] + words[1][0] + words[-1][0])
+
+    all_letters = "".join(words)
+    if len(all_letters) >= 3:
+        candidates.append(all_letters[0] + all_letters[len(all_letters) // 2] + all_letters[-1])
+
+    seen = set()
+    out = []
+    for c in candidates:
+        c = c.upper()[:3]
+        if len(c) == 3 and c not in seen:
+            seen.add(c)
+            out.append(c)
+    if not out:
+        out.append("XXX")
+    return out
+
+
+def pick_unique_role_code(name: str, existing_codes: set):
+    """
+    Pilih kode 3 huruf yang belum dipakai (existing_codes) untuk nama ini.
+    Dipanggil oleh app.py yang sudah query semua kode terpakai dari DB.
+    """
+    for cand in generate_role_code_candidates(name):
+        if cand not in existing_codes:
+            return cand
+    # fallback brute-force: kombinasi huruf + angka
+    base = generate_role_code_candidates(name)[0][:2]
+    for i in range(10):
+        trial = (base + str(i))[:3]
+        if trial not in existing_codes:
+            return trial
+    n = 1
+    while True:
+        trial = f"X{n:02d}"
+        if trial not in existing_codes:
+            return trial
+        n += 1
+
+
 def to_cidr(allowlist: str) -> str:
     """Konversi input allowlist ke format CIDR. Single IP -> /32."""
     if not allowlist:

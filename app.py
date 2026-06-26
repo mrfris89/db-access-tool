@@ -53,7 +53,7 @@ def search_employees():
         like = f"%{q}%"
         cur.execute(
             """
-            SELECT nik, nama, unit, subunit
+            SELECT nik, nama, divisi, unit, subunit
             FROM employee_master
             WHERE nik LIKE %s OR nama LIKE %s
             ORDER BY nama
@@ -77,14 +77,25 @@ def list_employees():
         if search:
             like = f"%{search}%"
             cur.execute(
-                "SELECT nik, nama, unit, subunit FROM employee_master "
+                "SELECT nik, nama, divisi, unit, subunit, last_updated FROM employee_master "
                 "WHERE nik LIKE %s OR nama LIKE %s ORDER BY nama",
                 (like, like),
             )
         else:
-            cur.execute("SELECT nik, nama, unit, subunit FROM employee_master ORDER BY nama")
+            cur.execute("SELECT nik, nama, divisi, unit, subunit, last_updated FROM employee_master ORDER BY nama")
         rows = cur.fetchall()
-        return jsonify({"count": len(rows), "data": rows})
+        for r in rows:
+            if isinstance(r.get("last_updated"), datetime):
+                r["last_updated"] = r["last_updated"].strftime("%Y-%m-%d %H:%M:%S")
+
+        # info update terakhir secara keseluruhan (baris yang paling baru diupdate)
+        cur.execute("SELECT MAX(last_updated) AS latest FROM employee_master")
+        latest_row = cur.fetchone()
+        latest = latest_row["latest"] if latest_row else None
+        if isinstance(latest, datetime):
+            latest = latest.strftime("%Y-%m-%d %H:%M:%S")
+
+        return jsonify({"count": len(rows), "data": rows, "last_updated": latest})
     finally:
         cur.close()
         conn.close()
@@ -130,15 +141,18 @@ def upload_preview_employees():
     )
 
 
-@app.route("/api/employees/replace", methods=["POST"])
-def replace_employees():
+@app.route("/api/employees/merge", methods=["POST"])
+def merge_employees():
     """
     Body JSON:
     {
-      "mapping": {"nik": 0, "nama": 1, "unit": 2, "subunit": 3},
-      "rows": [["198501...", "Budi", "TI", "Backend"], ...]
+      "mapping": {"nik": 0, "nama": 1, "divisi": 2, "unit": 3, "subunit": 4},
+      "rows": [["198501...", "Budi", "IT", "TI", "Backend"], ...]
     }
-    Replace TOTAL isi employee_master.
+    MERGE (UPSERT) berdasarkan NIK:
+      - NIK sudah ada -> UPDATE (nama/divisi/unit/subunit + last_updated)
+      - NIK baru -> INSERT
+      - NIK lama yang tidak ada di file baru -> TETAP ADA, tidak dihapus
     """
     body = request.get_json(force=True)
     mapping = body.get("mapping")
@@ -147,7 +161,7 @@ def replace_employees():
     if not mapping or rows is None:
         return jsonify({"error": "mapping dan rows wajib diisi"}), 400
 
-    required_keys = {"nik", "nama", "unit", "subunit"}
+    required_keys = {"nik", "nama", "divisi", "unit", "subunit"}
     if not required_keys.issubset(mapping.keys()):
         return jsonify({"error": f"mapping harus berisi: {required_keys}"}), 400
 
@@ -155,24 +169,87 @@ def replace_employees():
     cur = conn.cursor()
     try:
         conn.start_transaction()
-        cur.execute("DELETE FROM employee_master")
-        insert_sql = "INSERT INTO employee_master (nik, nama, unit, subunit) VALUES (%s, %s, %s, %s)"
+        upsert_sql = """
+            INSERT INTO employee_master (nik, nama, divisi, unit, subunit, last_updated)
+            VALUES (%s, %s, %s, %s, %s, NOW())
+            ON DUPLICATE KEY UPDATE
+                nama = VALUES(nama),
+                divisi = VALUES(divisi),
+                unit = VALUES(unit),
+                subunit = VALUES(subunit),
+                last_updated = NOW()
+        """
         values = []
         for row in rows:
             try:
                 nik = str(row[mapping["nik"]]).strip()
                 nama = str(row[mapping["nama"]]).strip()
+                divisi = str(row[mapping["divisi"]]).strip()
                 unit = str(row[mapping["unit"]]).strip()
                 subunit = str(row[mapping["subunit"]]).strip()
             except IndexError:
                 continue
             if not nik:
                 continue
-            values.append((nik, nama, unit, subunit))
+            values.append((nik, nama, divisi, unit, subunit))
         if values:
-            cur.executemany(insert_sql, values)
+            cur.executemany(upsert_sql, values)
         conn.commit()
-        return jsonify({"replaced": len(values)})
+        return jsonify({"merged": len(values)})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/role-suggestion", methods=["POST"])
+def role_suggestion():
+    """
+    Body JSON: {"divisi": "...", "unit": "..."}
+    Return: {"divisi_code": "ABC", "unit_code": "DEF", "suggested_base": "ABC_DEF"}
+
+    Kode di-generate sekali per nama (divisi/unit), lalu disimpan permanen
+    di role_code_mapping supaya konsisten dan tidak collision dengan nama lain.
+    """
+    body = request.get_json(force=True)
+    divisi = (body.get("divisi") or "").strip()
+    unit = (body.get("unit") or "").strip()
+
+    if not divisi or not unit:
+        return jsonify({"error": "divisi dan unit wajib diisi"}), 400
+
+    conn = db.get_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        def get_or_create_code(name):
+            cur.execute("SELECT code FROM role_code_mapping WHERE name = %s", (name,))
+            row = cur.fetchone()
+            if row:
+                return row["code"]
+
+            cur.execute("SELECT code FROM role_code_mapping")
+            existing_codes = {r["code"] for r in cur.fetchall()}
+            new_code = scripts.pick_unique_role_code(name, existing_codes)
+
+            cur.execute(
+                "INSERT INTO role_code_mapping (name, code) VALUES (%s, %s)",
+                (name, new_code),
+            )
+            conn.commit()
+            return new_code
+
+        divisi_code = get_or_create_code(divisi)
+        unit_code = get_or_create_code(unit)
+
+        return jsonify(
+            {
+                "divisi_code": divisi_code,
+                "unit_code": unit_code,
+                "suggested_base": f"{divisi_code}_{unit_code}",
+            }
+        )
     except Exception as e:
         conn.rollback()
         return jsonify({"error": str(e)}), 500
@@ -244,7 +321,7 @@ def save_provisioning():
     body = request.get_json(force=True)
 
     required_fields = [
-        "requester", "nik", "unit", "subunit", "created_by",
+        "requester", "nik", "divisi", "unit", "subunit", "created_by",
         "dbtype", "host", "username", "role", "expiry_iso",
     ]
     missing = [f for f in required_fields if not str(body.get(f, "")).strip()]
@@ -261,14 +338,15 @@ def save_provisioning():
         cur.execute(
             """
             INSERT INTO access_tracking
-                (username, nik, requester, unit, subunit, db_type, db_host,
+                (username, nik, requester, divisi, unit, subunit, db_type, db_host,
                  role_name, host_allowlist, created_at, expiry_at, status, created_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', %s)
             """,
             (
                 body["username"].strip(),
                 body["nik"].strip(),
                 body["requester"].strip(),
+                body["divisi"].strip(),
                 body["unit"].strip(),
                 body["subunit"].strip(),
                 dbtype,

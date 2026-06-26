@@ -78,6 +78,10 @@
   .main{
     flex:1;
     padding:28px 36px;
+    max-width: 100%;
+    width: 100%;
+  }
+  .page-narrow{
     max-width: 920px;
   }
   .page-head{
@@ -241,9 +245,9 @@
   .autocomplete-results .item .meta{ font-size:11px; color:var(--text-dim); font-family:var(--mono); }
   .autocomplete-results .empty{ padding:9px 12px; font-size:12.5px; color:var(--text-dim); }
 
-  .table-std{ width:100%; border-collapse:collapse; font-size:12.5px; }
-  .table-std th{ text-align:left; padding:9px 12px; color:var(--text-dim); text-transform:uppercase; font-size:10.5px; letter-spacing:.05em; border-bottom:1px solid var(--border); }
-  .table-std td{ padding:9px 12px; border-bottom:1px solid var(--border); }
+  .table-std{ width:100%; border-collapse:collapse; font-size:12.5px; table-layout:fixed; }
+  .table-std th{ text-align:left; padding:9px 12px; color:var(--text-dim); text-transform:uppercase; font-size:10.5px; letter-spacing:.05em; border-bottom:1px solid var(--border); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .table-std td{ padding:9px 12px; border-bottom:1px solid var(--border); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
   .upload-zone{
     border:1px dashed var(--border);
@@ -275,7 +279,7 @@
 
   <div class="main">
 
-    <div id="page-provisioning">
+    <div id="page-provisioning" class="page-narrow">
     <!-- STEP 1: FORM -->
     <div id="step-form">
       <div class="page-head">
@@ -309,9 +313,15 @@
         </div>
         <div class="grid2">
           <div class="field">
-            <label>Nama Unit *</label>
-            <input type="text" id="f-unit" placeholder="cth. Teknologi Informasi">
+            <label>Nama Divisi *</label>
+            <input type="text" id="f-divisi" placeholder="cth. IT Infrastructure & Cyber Security">
           </div>
+          <div class="field">
+            <label>Nama Unit *</label>
+            <input type="text" id="f-unit" placeholder="cth. Cyber Security & Fraud Management">
+          </div>
+        </div>
+        <div class="grid2">
           <div class="field">
             <label>Nama Sub Unit *</label>
             <input type="text" id="f-subunit" placeholder="cth. Backend Engineering">
@@ -349,7 +359,21 @@
         </div>
         <div class="field">
           <label>Role Name *</label>
-          <input type="text" id="f-role" placeholder="cth. readonly_orders">
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="f-role-base" placeholder="Otomatis dari Unit/SubUnit" readonly style="flex:1; background:var(--panel); color:var(--text-dim);">
+            <select id="f-role-suffix" style="width:110px;" onchange="updateRoleName()">
+              <option value="RO">RO (Read Only)</option>
+              <option value="RW">RW (Read Write)</option>
+            </select>
+          </div>
+          <div class="hint" id="role-base-hint">Isi Unit &amp; Sub Unit dulu untuk dapat suggestion role.</div>
+          <div style="margin-top:8px;">
+            <label style="font-size:11.5px; color:var(--text-dim);">
+              <input type="checkbox" id="f-role-override-toggle" onchange="toggleRoleOverride()" style="accent-color:var(--accent); margin-right:4px;">
+              Edit manual nama role
+            </label>
+          </div>
+          <input type="text" id="f-role" class="hidden" placeholder="cth. readonly_orders" style="margin-top:6px;">
           <div class="hint" id="role-hint">Pilih database type dulu untuk melihat catatan role.</div>
         </div>
         <div class="field hidden" id="f-allowlist-wrapper">
@@ -415,6 +439,7 @@
         <h2>Ringkasan</h2>
         <div class="meta-row"><span class="k">Nama Pengguna</span><span class="v" id="sum-requester">—</span></div>
         <div class="meta-row"><span class="k">NIK</span><span class="v" id="sum-nik">—</span></div>
+        <div class="meta-row"><span class="k">Divisi</span><span class="v" id="sum-divisi">—</span></div>
         <div class="meta-row"><span class="k">Unit</span><span class="v" id="sum-unit">—</span></div>
         <div class="meta-row"><span class="k">Sub Unit</span><span class="v" id="sum-subunit">—</span></div>
         <div class="meta-row"><span class="k">Created by</span><span class="v" id="sum-createdby">—</span></div>
@@ -461,6 +486,7 @@
         <div class="meta-row"><span class="k">Username</span><span class="v" id="tr-username">—</span></div>
         <div class="meta-row"><span class="k">Nama Pengguna</span><span class="v" id="tr-requester">—</span></div>
         <div class="meta-row"><span class="k">NIK</span><span class="v" id="tr-nik">—</span></div>
+        <div class="meta-row"><span class="k">Divisi</span><span class="v" id="tr-divisi">—</span></div>
         <div class="meta-row"><span class="k">Unit</span><span class="v" id="tr-unit">—</span></div>
         <div class="meta-row"><span class="k">Sub Unit</span><span class="v" id="tr-subunit">—</span></div>
         <div class="meta-row"><span class="k">Created by</span><span class="v" id="tr-createdby">—</span></div>
@@ -487,7 +513,7 @@
     </div> <!-- /page-provisioning -->
 
     <!-- DASHBOARD PAGE -->
-    <div id="page-dashboard" class="hidden" style="max-width: 1180px;">
+    <div id="page-dashboard" class="hidden">
       <div class="page-head">
         <h1>Active Access Dashboard</h1>
         <p>Monitoring dan aksi terhadap akses yang sedang berjalan. Semua aksi hanya generate script — eksekusi tetap manual oleh DBA.</p>
@@ -510,23 +536,40 @@
         </div>
       </div>
 
-      <div class="card" style="padding:0; overflow-x:auto;">
-        <table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+      <div class="card" style="padding:0;">
+        <table style="width:100%; border-collapse:collapse; font-size:12px; table-layout:fixed;">
+          <colgroup>
+            <col style="width:4%;">
+            <col style="width:8%;">
+            <col style="width:7%;">
+            <col style="width:8%;">
+            <col style="width:7%;">
+            <col style="width:6%;">
+            <col style="width:6%;">
+            <col style="width:6%;">
+            <col style="width:8%;">
+            <col style="width:7%;">
+            <col style="width:7%;">
+            <col style="width:6%;">
+            <col style="width:6%;">
+            <col style="width:12%;">
+          </colgroup>
           <thead>
-            <tr style="text-align:left; border-bottom:1px solid var(--border); color:var(--text-dim); text-transform:uppercase; font-size:10.5px; letter-spacing:.05em;">
-              <th style="padding:11px 14px;">ID</th>
-              <th style="padding:11px 14px;">Username</th>
-              <th style="padding:11px 14px;">NIK</th>
-              <th style="padding:11px 14px;">Nama Pengguna</th>
-              <th style="padding:11px 14px;">Unit</th>
-              <th style="padding:11px 14px;">Sub Unit</th>
-              <th style="padding:11px 14px;">DB Type</th>
-              <th style="padding:11px 14px;">Host</th>
-              <th style="padding:11px 14px;">Created At</th>
-              <th style="padding:11px 14px;">Expiry At</th>
-              <th style="padding:11px 14px;">Status</th>
-              <th style="padding:11px 14px;">Created By</th>
-              <th style="padding:11px 14px;">Actions</th>
+            <tr style="text-align:left; border-bottom:1px solid var(--border); color:var(--text-dim); text-transform:uppercase; font-size:10px; letter-spacing:.04em;">
+              <th style="padding:10px 8px;">ID</th>
+              <th style="padding:10px 8px;">Username</th>
+              <th style="padding:10px 8px;">NIK</th>
+              <th style="padding:10px 8px;">Nama</th>
+              <th style="padding:10px 8px;">Divisi</th>
+              <th style="padding:10px 8px;">Unit</th>
+              <th style="padding:10px 8px;">Sub Unit</th>
+              <th style="padding:10px 8px;">DB</th>
+              <th style="padding:10px 8px;">Host</th>
+              <th style="padding:10px 8px;">Created</th>
+              <th style="padding:10px 8px;">Expiry</th>
+              <th style="padding:10px 8px;">Status</th>
+              <th style="padding:10px 8px;">By</th>
+              <th style="padding:10px 8px;">Actions</th>
             </tr>
           </thead>
           <tbody id="dash-tbody">
@@ -539,7 +582,7 @@
     </div>
 
     <!-- DATA KARYAWAN PAGE -->
-    <div id="page-employee" class="hidden" style="max-width: 980px;">
+    <div id="page-employee" class="hidden page-narrow" style="max-width: 980px;">
       <div class="page-head">
         <h1>Data Karyawan</h1>
         <p>Master data karyawan untuk auto-completion di form provisioning. Upload akan menggantikan seluruh data yang ada.</p>
@@ -548,7 +591,7 @@
       <div class="card">
         <h2>Upload Excel</h2>
         <div id="emp-upload-zone" class="upload-zone">
-          <p style="margin:0 0 10px 0;">Pilih file .xlsx berisi kolom NIK, Nama Karyawan, Nama Unit, Nama Sub Unit</p>
+          <p style="margin:0 0 10px 0;">Pilih file .xlsx berisi kolom NIK, Nama Karyawan, Nama Divisi, Nama Unit, Nama Sub Unit</p>
           <input type="file" id="emp-file-input" accept=".xlsx" style="display:none" onchange="handleEmployeeFile(this)">
           <button class="btn btn-secondary" onclick="triggerEmployeeFileInput()">Pilih File</button>
         </div>
@@ -579,14 +622,25 @@
         </div>
         <div class="grid2">
           <div class="field">
-            <label>Kolom untuk Nama Unit</label>
-            <select id="map-unit">
+            <label>Kolom untuk Nama Divisi</label>
+            <select id="map-divisi">
               <option value="0">Kolom A — NIK</option>
               <option value="1">Kolom B — Nama_Karyawan</option>
               <option value="2" selected>Kolom C — Unit</option>
               <option value="3">Kolom D — SubUnit</option>
             </select>
           </div>
+          <div class="field">
+            <label>Kolom untuk Nama Unit</label>
+            <select id="map-unit">
+              <option value="0">Kolom A — NIK</option>
+              <option value="1">Kolom B — Nama_Karyawan</option>
+              <option value="2">Kolom C — Unit</option>
+              <option value="3" selected>Kolom D — SubUnit</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid2">
           <div class="field">
             <label>Kolom untuk Nama Sub Unit</label>
             <select id="map-subunit">
@@ -603,25 +657,32 @@
       <div id="emp-preview-card" class="card hidden">
         <h2>Preview (3 baris pertama dari total <span id="emp-preview-count">0</span> baris)</h2>
         <table class="table-std">
-          <thead><tr><th>NIK</th><th>Nama Karyawan</th><th>Unit</th><th>Sub Unit</th></tr></thead>
+          <colgroup>
+            <col style="width:15%;"><col style="width:20%;"><col style="width:20%;"><col style="width:22%;"><col style="width:23%;">
+          </colgroup>
+          <thead><tr><th>NIK</th><th>Nama Karyawan</th><th>Divisi</th><th>Unit</th><th>Sub Unit</th></tr></thead>
           <tbody id="emp-preview-tbody"></tbody>
         </table>
         <div class="warn-banner" style="margin-top:14px;">
-          ⚠ Konfirmasi akan menghapus seluruh data karyawan yang ada sebelumnya dan menggantikannya dengan data ini.
+          ⚠ NIK yang sudah ada akan diperbarui (update) dengan data terbaru ini. NIK baru akan ditambahkan. Data NIK lama yang tidak ada di file ini <strong>tidak akan dihapus</strong>.
         </div>
         <div class="actions">
           <button class="btn btn-secondary" onclick="cancelEmployeeUpload()">Batal</button>
-          <button class="btn btn-primary" onclick="confirmEmployeeReplace()">Confirm Replace</button>
+          <button class="btn btn-primary" onclick="confirmEmployeeMerge()">Confirm Merge</button>
         </div>
       </div>
 
       <div class="card">
         <h2>Data Karyawan Saat Ini <span style="color:var(--text-dim); font-weight:400; text-transform:none; letter-spacing:0;">(<span id="emp-current-count">0</span> karyawan)</span></h2>
+        <p class="hint" id="emp-last-updated" style="margin:-4px 0 12px 0;">Belum pernah di-load.</p>
         <div style="margin-bottom:12px;">
           <input type="text" id="emp-table-search" placeholder="Cari NIK atau nama..." oninput="renderEmployeeTable()">
         </div>
         <table class="table-std">
-          <thead><tr><th>NIK</th><th>Nama Karyawan</th><th>Unit</th><th>Sub Unit</th></tr></thead>
+          <colgroup>
+            <col style="width:13%;"><col style="width:17%;"><col style="width:18%;"><col style="width:18%;"><col style="width:19%;"><col style="width:15%;">
+          </colgroup>
+          <thead><tr><th>NIK</th><th>Nama Karyawan</th><th>Divisi</th><th>Unit</th><th>Sub Unit</th><th>Last Updated</th></tr></thead>
           <tbody id="emp-table-tbody"></tbody>
         </table>
       </div>
@@ -818,10 +879,12 @@ async function selectEmployee(target, nik){
     if(target === 'req'){
       document.getElementById('f-requester').value = e.nama;
       document.getElementById('f-nik').value = e.nik;
+      document.getElementById('f-divisi').value = e.divisi;
       document.getElementById('f-unit').value = e.unit;
       document.getElementById('f-subunit').value = e.subunit;
       document.getElementById('f-search-req').value = e.nama + ' (' + e.nik + ')';
       document.getElementById('f-search-req-results').classList.add('hidden');
+      fetchRoleSuggestion();
     } else if(target === 'createdby'){
       document.getElementById('f-createdby').value = e.nama;
       document.getElementById('f-search-createdby').value = e.nama + ' (' + e.nik + ')';
@@ -833,6 +896,56 @@ async function selectEmployee(target, nik){
   }
 }
 
+/* ===== ROLE NAME SUGGESTION (Divisi/Unit -> kode -> RO/RW) ===== */
+async function fetchRoleSuggestion(){
+  const divisi = document.getElementById('f-divisi').value.trim();
+  const unit = document.getElementById('f-unit').value.trim();
+  const baseInput = document.getElementById('f-role-base');
+  const hint = document.getElementById('role-base-hint');
+
+  if(!divisi || !unit){
+    baseInput.value = '';
+    hint.textContent = 'Isi Divisi & Unit dulu untuk dapat suggestion role.';
+    updateRoleName();
+    return;
+  }
+
+  hint.textContent = 'Mencari suggestion...';
+  try {
+    const result = await apiPost('/api/role-suggestion', { divisi, unit });
+    baseInput.value = result.suggested_base;
+    hint.textContent = `Dari Divisi (${result.divisi_code}) + Unit (${result.unit_code}).`;
+    updateRoleName();
+  } catch(err){
+    hint.textContent = 'Gagal mengambil suggestion: ' + err.message;
+  }
+}
+
+function updateRoleName(){
+  const override = document.getElementById('f-role-override-toggle').checked;
+  if(override) return; // f-role sudah diisi manual oleh user, jangan timpa
+  const base = document.getElementById('f-role-base').value.trim();
+  const suffix = document.getElementById('f-role-suffix').value;
+  document.getElementById('f-role').value = base ? `${base}_${suffix}` : '';
+}
+
+function toggleRoleOverride(){
+  const override = document.getElementById('f-role-override-toggle').checked;
+  const roleInput = document.getElementById('f-role');
+  const suggestionRow = document.getElementById('f-role-base').closest('div');
+  if(override){
+    roleInput.classList.remove('hidden');
+    roleInput.focus();
+  } else {
+    roleInput.classList.add('hidden');
+    updateRoleName(); // kembalikan ke hasil suggestion
+  }
+}
+
+// trigger suggestion kalau user edit Unit/SubUnit secara manual (bukan lewat autocomplete)
+document.getElementById('f-divisi').addEventListener('blur', fetchRoleSuggestion);
+document.getElementById('f-unit').addEventListener('blur', fetchRoleSuggestion);
+
 document.addEventListener('click', function(e){
   if(!e.target.closest('.field')){
     document.querySelectorAll('.autocomplete-results').forEach(el => el.classList.add('hidden'));
@@ -841,7 +954,7 @@ document.addEventListener('click', function(e){
 
 /* ===== PROVISIONING FORM ===== */
 function validateForm(){
-  const required = ['f-requester','f-nik','f-unit','f-subunit','f-createdby','f-dbtype','f-host','f-username','f-role','f-quarter','f-year'];
+  const required = ['f-requester','f-nik','f-divisi','f-unit','f-subunit','f-createdby','f-dbtype','f-host','f-username','f-role','f-quarter','f-year'];
   for(const id of required){
     const el = document.getElementById(id);
     if(!el.value || el.value.trim()===''){
@@ -875,6 +988,7 @@ async function goToPreview(){
     requester: document.getElementById('f-requester').value.trim(),
     nik: document.getElementById('f-nik').value.trim(),
     unit: document.getElementById('f-unit').value.trim(),
+    divisi: document.getElementById('f-divisi').value.trim(),
     subunit: document.getElementById('f-subunit').value.trim(),
     created_by: document.getElementById('f-createdby').value.trim(),
     dbtype: document.getElementById('f-dbtype').value,
@@ -897,6 +1011,7 @@ async function goToPreview(){
     document.getElementById('gen-password').textContent = state.password;
     document.getElementById('sum-requester').textContent = state.requester;
     document.getElementById('sum-nik').textContent = state.nik;
+    document.getElementById('sum-divisi').textContent = state.divisi;
     document.getElementById('sum-unit').textContent = state.unit;
     document.getElementById('sum-subunit').textContent = state.subunit;
     document.getElementById('sum-createdby').textContent = state.created_by;
@@ -945,6 +1060,7 @@ async function confirmSave(){
     document.getElementById('tr-username').textContent = state.username;
     document.getElementById('tr-requester').textContent = state.requester;
     document.getElementById('tr-nik').textContent = state.nik;
+    document.getElementById('tr-divisi').textContent = state.divisi;
     document.getElementById('tr-unit').textContent = state.unit;
     document.getElementById('tr-subunit').textContent = state.subunit;
     document.getElementById('tr-createdby').textContent = state.created_by;
@@ -991,6 +1107,10 @@ function resetForm(){
   document.getElementById('f-allowlist').value='';
   document.getElementById('f-allowlist-wrapper').classList.add('hidden');
   document.getElementById('role-hint').textContent = "Pilih database type dulu untuk melihat catatan role.";
+  document.getElementById('role-base-hint').textContent = "Isi Unit & Sub Unit dulu untuk dapat suggestion role.";
+  document.getElementById('f-role-suffix').value = 'RO';
+  document.getElementById('f-role-override-toggle').checked = false;
+  document.getElementById('f-role').classList.add('hidden');
   document.getElementById('expiry-preview').textContent = "Expiry akan dihitung sebagai akhir dari quarter yang dipilih.";
 }
 
@@ -1020,18 +1140,26 @@ const statusPillClass = {
 };
 
 function actionButtons(rec){
-  let btns = `<button class="btn btn-secondary" style="padding:5px 9px; font-size:11.5px;" onclick="viewDetail(${rec.id})">Detail</button>`;
+  const opts = [`<option value="">Aksi...</option>`, `<option value="detail">Detail</option>`];
   if(rec.status === 'PENDING'){
-    btns += ` <button class="btn btn-primary" style="padding:5px 9px; font-size:11.5px;" onclick="dashMarkExecuted(${rec.id})">Mark Executed</button>`;
+    opts.push(`<option value="mark-executed">Mark Executed</option>`);
   }
   if(rec.status === 'ACTIVE' || rec.status === 'EXTENDED'){
-    btns += ` <button class="btn btn-secondary" style="padding:5px 9px; font-size:11.5px;" onclick="openLockModal(${rec.id})">Lock Now</button>`;
-    btns += ` <button class="btn btn-secondary" style="padding:5px 9px; font-size:11.5px;" onclick="openExtendModal(${rec.id})">Extend</button>`;
+    opts.push(`<option value="lock">Lock Now</option>`);
+    opts.push(`<option value="extend">Extend</option>`);
   }
   if(rec.status === 'LOCKED'){
-    btns += ` <button class="btn btn-secondary" style="padding:5px 9px; font-size:11.5px;" onclick="openExtendModal(${rec.id})">Extend (Unlock)</button>`;
+    opts.push(`<option value="extend">Extend (Unlock)</option>`);
   }
-  return btns;
+  return `<select onchange="handleDashAction(${rec.id}, this.value); this.value='';" style="width:100%; padding:5px 4px; font-size:11px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:5px;">${opts.join('')}</select>`;
+}
+
+function handleDashAction(id, action){
+  if(!action) return;
+  if(action === 'detail') viewDetail(id);
+  if(action === 'mark-executed') dashMarkExecuted(id);
+  if(action === 'lock') openLockModal(id);
+  if(action === 'extend') openExtendModal(id);
 }
 
 let currentDashboardData = [];
@@ -1058,21 +1186,24 @@ async function renderDashboard(){
     }
     empty.classList.add('hidden');
 
+    const cellBase = 'padding:8px 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
+
     tbody.innerHTML = rows.map(r => `
       <tr style="border-bottom:1px solid var(--border);">
-        <td style="padding:10px 14px; font-family:var(--mono); color:var(--text-dim);">#${r.id}</td>
-        <td style="padding:10px 14px; font-family:var(--mono);">${r.username}</td>
-        <td style="padding:10px 14px; font-family:var(--mono); color:var(--text-dim);">${r.nik}</td>
-        <td style="padding:10px 14px;">${r.requester}</td>
-        <td style="padding:10px 14px; color:var(--text-dim);">${r.unit}</td>
-        <td style="padding:10px 14px; color:var(--text-dim);">${r.subunit}</td>
-        <td style="padding:10px 14px; text-transform:uppercase; font-size:11px; color:var(--text-dim);">${r.db_type}</td>
-        <td style="padding:10px 14px; font-family:var(--mono); color:var(--text-dim);">${r.db_host}</td>
-        <td style="padding:10px 14px; font-family:var(--mono); font-size:11.5px; color:var(--text-dim);">${r.created_at}</td>
-        <td style="padding:10px 14px; font-family:var(--mono); font-size:11.5px;">${r.expiry_at}</td>
-        <td style="padding:10px 14px;"><span class="pill ${statusPillClass[r.status]}">${r.status}</span></td>
-        <td style="padding:10px 14px; color:var(--text-dim);">${r.created_by}</td>
-        <td style="padding:10px 14px; white-space:nowrap;">${actionButtons(r)}</td>
+        <td style="${cellBase} font-family:var(--mono); color:var(--text-dim);">#${r.id}</td>
+        <td style="${cellBase} font-family:var(--mono);" title="${r.username}">${r.username}</td>
+        <td style="${cellBase} font-family:var(--mono); color:var(--text-dim);" title="${r.nik}">${r.nik}</td>
+        <td style="${cellBase}" title="${r.requester}">${r.requester}</td>
+        <td style="${cellBase} color:var(--text-dim);" title="${r.divisi || ''}">${r.divisi || '—'}</td>
+        <td style="${cellBase} color:var(--text-dim);" title="${r.unit}">${r.unit}</td>
+        <td style="${cellBase} color:var(--text-dim);" title="${r.subunit}">${r.subunit}</td>
+        <td style="${cellBase} text-transform:uppercase; font-size:10.5px; color:var(--text-dim);">${r.db_type}</td>
+        <td style="${cellBase} font-family:var(--mono); font-size:11px; color:var(--text-dim);" title="${r.db_host}">${r.db_host}</td>
+        <td style="${cellBase} font-family:var(--mono); font-size:11px; color:var(--text-dim);">${r.created_at}</td>
+        <td style="${cellBase} font-family:var(--mono); font-size:11px;">${r.expiry_at}</td>
+        <td style="padding:8px 8px;"><span class="pill ${statusPillClass[r.status]}">${r.status}</span></td>
+        <td style="${cellBase} color:var(--text-dim);" title="${r.created_by}">${r.created_by}</td>
+        <td style="padding:5px 6px;">${actionButtons(r)}</td>
       </tr>
     `).join('');
   } catch(err){
@@ -1090,6 +1221,7 @@ function viewDetail(id){
     <div class="meta-row"><span class="k">Username</span><span class="v">${r.username}</span></div>
     <div class="meta-row"><span class="k">Nama Pengguna</span><span class="v">${r.requester}</span></div>
     <div class="meta-row"><span class="k">NIK</span><span class="v">${r.nik}</span></div>
+    <div class="meta-row"><span class="k">Divisi</span><span class="v">${r.divisi || '—'}</span></div>
     <div class="meta-row"><span class="k">Unit</span><span class="v">${r.unit}</span></div>
     <div class="meta-row"><span class="k">Sub Unit</span><span class="v">${r.subunit}</span></div>
     <div class="meta-row"><span class="k">DB Type</span><span class="v">${r.db_type}</span></div>
@@ -1222,8 +1354,8 @@ async function handleEmployeeFile(fileInput){
       `<p style="margin:0; color:var(--accent);">✓ File terbaca: ${file.name} (${data.total_rows} baris data, ${data.header.length} kolom)</p>`;
 
     // isi dropdown mapping berdasarkan header asli
-    const selects = ['map-nik','map-nama','map-unit','map-subunit'];
-    const defaultGuess = { 'map-nik': 0, 'map-nama': 1, 'map-unit': 2, 'map-subunit': 3 };
+    const selects = ['map-nik','map-nama','map-divisi','map-unit','map-subunit'];
+    const defaultGuess = { 'map-nik': 0, 'map-nama': 1, 'map-divisi': 2, 'map-unit': 3, 'map-subunit': 4 };
     selects.forEach(id => {
       const sel = document.getElementById(id);
       sel.innerHTML = data.header.map((h, idx) =>
@@ -1242,15 +1374,22 @@ function previewEmployeeMapping(){
   if(!pendingEmployeeUpload) return;
   const idxNik = parseInt(document.getElementById('map-nik').value);
   const idxNama = parseInt(document.getElementById('map-nama').value);
+  const idxDivisi = parseInt(document.getElementById('map-divisi').value);
   const idxUnit = parseInt(document.getElementById('map-unit').value);
   const idxSubunit = parseInt(document.getElementById('map-subunit').value);
 
-  window._employeeMapping = { nik: idxNik, nama: idxNama, unit: idxUnit, subunit: idxSubunit };
+  window._employeeMapping = { nik: idxNik, nama: idxNama, divisi: idxDivisi, unit: idxUnit, subunit: idxSubunit };
 
   const rows = pendingEmployeeUpload.all_rows;
   document.getElementById('emp-preview-count').textContent = rows.length;
   document.getElementById('emp-preview-tbody').innerHTML = rows.slice(0,3).map(row => `
-    <tr><td>${row[idxNik] ?? ''}</td><td>${row[idxNama] ?? ''}</td><td>${row[idxUnit] ?? ''}</td><td>${row[idxSubunit] ?? ''}</td></tr>
+    <tr>
+      <td title="${row[idxNik] ?? ''}">${row[idxNik] ?? ''}</td>
+      <td title="${row[idxNama] ?? ''}">${row[idxNama] ?? ''}</td>
+      <td title="${row[idxDivisi] ?? ''}">${row[idxDivisi] ?? ''}</td>
+      <td title="${row[idxUnit] ?? ''}">${row[idxUnit] ?? ''}</td>
+      <td title="${row[idxSubunit] ?? ''}">${row[idxSubunit] ?? ''}</td>
+    </tr>
   `).join('');
 
   document.getElementById('emp-preview-card').classList.remove('hidden');
@@ -1262,28 +1401,28 @@ function cancelEmployeeUpload(){
   document.getElementById('emp-mapping-card').classList.add('hidden');
   document.getElementById('emp-preview-card').classList.add('hidden');
   document.getElementById('emp-upload-zone').innerHTML =
-    '<p style="margin:0 0 10px 0;">Pilih file .xlsx berisi kolom NIK, Nama Karyawan, Nama Unit, Nama Sub Unit</p>' +
+    '<p style="margin:0 0 10px 0;">Pilih file .xlsx berisi kolom NIK, Nama Karyawan, Nama Divisi, Nama Unit, Nama Sub Unit</p>' +
     '<input type="file" id="emp-file-input" accept=".xlsx" style="display:none" onchange="handleEmployeeFile(this)">' +
     '<button class="btn btn-secondary" onclick="triggerEmployeeFileInput()">Pilih File</button>';
 }
 
-async function confirmEmployeeReplace(){
+async function confirmEmployeeMerge(){
   const btn = document.querySelector('#emp-preview-card .btn-primary');
   btn.disabled = true;
   btn.textContent = 'Menyimpan...';
   try {
-    const result = await apiPost('/api/employees/replace', {
+    const result = await apiPost('/api/employees/merge', {
       mapping: window._employeeMapping,
       rows: pendingEmployeeUpload.all_rows,
     });
-    showAlert(`Berhasil mengganti data karyawan. Total ${result.replaced} baris tersimpan.`);
+    showAlert(`Berhasil merge data karyawan. Total ${result.merged} baris diproses (insert/update).`);
     cancelEmployeeUpload();
     renderEmployeeTable();
   } catch(err){
     showAlert('Gagal menyimpan: ' + err.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Confirm Replace';
+    btn.textContent = 'Confirm Merge';
   }
 }
 
@@ -1292,11 +1431,21 @@ async function renderEmployeeTable(){
   try {
     const result = await apiGet('/api/employees?search=' + encodeURIComponent(search));
     document.getElementById('emp-current-count').textContent = result.count;
+    document.getElementById('emp-last-updated').textContent = result.last_updated
+      ? 'Terakhir di-load/update: ' + result.last_updated
+      : 'Belum pernah di-load.';
     document.getElementById('emp-table-tbody').innerHTML = result.data.map(e => `
-      <tr><td style="font-family:var(--mono);">${e.nik}</td><td>${e.nama}</td><td>${e.unit}</td><td>${e.subunit}</td></tr>
+      <tr>
+        <td style="font-family:var(--mono);" title="${e.nik}">${e.nik}</td>
+        <td title="${e.nama}">${e.nama}</td>
+        <td title="${e.divisi || ''}">${e.divisi || '—'}</td>
+        <td title="${e.unit}">${e.unit}</td>
+        <td title="${e.subunit}">${e.subunit}</td>
+        <td style="font-family:var(--mono); font-size:11.5px; color:var(--text-dim);">${e.last_updated || '—'}</td>
+      </tr>
     `).join('');
   } catch(err){
-    document.getElementById('emp-table-tbody').innerHTML = `<tr><td colspan="4" style="color:var(--danger);">Gagal memuat: ${err.message}</td></tr>`;
+    document.getElementById('emp-table-tbody').innerHTML = `<tr><td colspan="6" style="color:var(--danger);">Gagal memuat: ${err.message}</td></tr>`;
   }
 }
 </script>
