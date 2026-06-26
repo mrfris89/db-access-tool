@@ -9,25 +9,24 @@ import secrets
 import string
 import os
 
-# Load wordlist passphrase
-WORDLIST_PATH = os.path.join(os.path.dirname(__file__), "wordlist_id.txt")
+# Load wordlist passphrase (English)
+WORDLIST_PATH = os.path.join(os.path.dirname(__file__), "wordlist_en.txt")
 try:
     with open(WORDLIST_PATH) as f:
         WORDLIST = [line.strip() for line in f if line.strip()]
 except FileNotFoundError:
-    # Fallback wordlist kalau file tidak ada
     WORDLIST = [
-        "Gajah", "Harimau", "Kucing", "Anjing", "Burung", "Ikan", "Pohon",
-        "Bunga", "Bulan", "Matahari", "Bintang", "Awan", "Hujan", "Angin",
-        "Batu", "Pasir", "Laut", "Gunung", "Lembah", "Padang",
+        "Tiger", "Eagle", "River", "Storm", "Cedar", "Falcon", "Maple",
+        "Coral", "Ember", "Frost", "Arrow", "Blaze", "Cliff", "Drift",
+        "Flame", "Glacier", "Harbor", "Ivory", "Jungle", "Knight",
     ]
 
 
 def generate_passphrase():
     """
-    Generate passphrase: 3 kata random dari wordlist bahasa Indonesia + angka + simbol.
+    Generate passphrase: 3 random English words + number + symbol.
     Format: Word1-Word2-Word3-NN!
-    Contoh: Gajah-Merah-Pantai-47!
+    Example: Tiger-Maple-Frost-47!
     """
     words = [secrets.choice(WORDLIST) for _ in range(3)]
     number = secrets.randbelow(100)  # 00-99

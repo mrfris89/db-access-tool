@@ -204,19 +204,6 @@ def merge_employees():
         conn.close()
 
 
-@app.route("/api/roles", methods=["GET"])
-def list_roles():
-    """Return daftar role yang sudah pernah dibuat (reusable)."""
-    conn = db.get_connection()
-    cur = conn.cursor(dictionary=True)
-    try:
-        cur.execute("SELECT id, role_name, divisi, unit, suffix, created_at FROM role_master ORDER BY role_name")
-        rows = cur.fetchall()
-        return jsonify(rows)
-    finally:
-        cur.close()
-        conn.close()
-
 
 @app.route("/api/role-suggestion", methods=["POST"])
 def role_suggestion():
@@ -554,6 +541,138 @@ def confirm_extend(tracking_id):
         )
         conn.commit()
         return jsonify({"id": tracking_id, "status": "EXTENDED", "expiry_at": expiry_iso})
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/tracking/<int:tracking_id>", methods=["DELETE"])
+def delete_tracking(tracking_id):
+    """Hapus record dari access_tracking."""
+    record = _get_tracking_row(tracking_id)
+    if not record:
+        return jsonify({"error": "Record tidak ditemukan"}), 404
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM access_tracking WHERE id = %s", (tracking_id,))
+        conn.commit()
+        return jsonify({"id": tracking_id, "deleted": True})
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# ROLE MANAGEMENT
+# ---------------------------------------------------------------------------
+@app.route("/api/roles", methods=["GET"])
+def list_roles():
+    """Return daftar role yang sudah pernah dibuat (reusable)."""
+    conn = db.get_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        search = request.args.get("search", "").strip()
+        if search:
+            like = f"%{search}%"
+            cur.execute(
+                "SELECT id, role_name, divisi, unit, suffix, created_at FROM role_master "
+                "WHERE role_name LIKE %s OR divisi LIKE %s OR unit LIKE %s ORDER BY role_name",
+                (like, like, like),
+            )
+        else:
+            cur.execute("SELECT id, role_name, divisi, unit, suffix, created_at FROM role_master ORDER BY role_name")
+        rows = cur.fetchall()
+        for r in rows:
+            if isinstance(r.get("created_at"), datetime):
+                r["created_at"] = r["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+        return jsonify(rows)
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/roles", methods=["POST"])
+def create_role():
+    """Buat role baru di role_master."""
+    body = request.get_json(force=True)
+    role_name = (body.get("role_name") or "").strip()
+    divisi = (body.get("divisi") or "").strip()
+    unit = (body.get("unit") or "").strip()
+    suffix = (body.get("suffix") or "RO").strip()
+
+    if not role_name or not divisi or not unit:
+        return jsonify({"error": "role_name, divisi, dan unit wajib diisi"}), 400
+    if suffix not in ("RO", "RW"):
+        return jsonify({"error": "suffix harus RO atau RW"}), 400
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO role_master (role_name, divisi, unit, suffix, created_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            """,
+            (role_name, divisi, unit, suffix),
+        )
+        conn.commit()
+        return jsonify({"id": cur.lastrowid, "role_name": role_name})
+    except Exception as e:
+        conn.rollback()
+        if "Duplicate" in str(e):
+            return jsonify({"error": f"Role '{role_name}' sudah ada"}), 409
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/roles/<int:role_id>", methods=["PUT"])
+def update_role(role_id):
+    """Update role di role_master."""
+    body = request.get_json(force=True)
+    role_name = (body.get("role_name") or "").strip()
+    divisi = (body.get("divisi") or "").strip()
+    unit = (body.get("unit") or "").strip()
+    suffix = (body.get("suffix") or "RO").strip()
+
+    if not role_name or not divisi or not unit:
+        return jsonify({"error": "role_name, divisi, dan unit wajib diisi"}), 400
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE role_master SET role_name=%s, divisi=%s, unit=%s, suffix=%s WHERE id=%s",
+            (role_name, divisi, unit, suffix, role_id),
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            return jsonify({"error": "Role tidak ditemukan"}), 404
+        return jsonify({"id": role_id, "updated": True})
+    except Exception as e:
+        conn.rollback()
+        if "Duplicate" in str(e):
+            return jsonify({"error": f"Role '{role_name}' sudah ada"}), 409
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/roles/<int:role_id>", methods=["DELETE"])
+def delete_role(role_id):
+    """Hapus role dari role_master."""
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM role_master WHERE id = %s", (role_id,))
+        conn.commit()
+        if cur.rowcount == 0:
+            return jsonify({"error": "Role tidak ditemukan"}), 404
+        return jsonify({"id": role_id, "deleted": True})
     finally:
         cur.close()
         conn.close()

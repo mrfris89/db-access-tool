@@ -275,6 +275,7 @@
     <a href="#" class="disabled">Audit Log</a>
     <div class="group-label">Administrasi</div>
     <a href="#" id="nav-employee" onclick="showPage('employee')">Data Karyawan</a>
+    <a href="#" id="nav-roles" onclick="showPage('roles')">Role Management</a>
   </div>
 
   <div class="main">
@@ -336,6 +337,8 @@
         </div>
       </div>
 
+      <div style="border-top:2px solid var(--border); margin:28px 0;"></div>
+
       <div class="card">
         <h2>Target Database <span style="color:var(--danger); font-weight:400; text-transform:none; letter-spacing:0;">— semua wajib diisi</span></h2>
         <div class="grid2">
@@ -355,25 +358,33 @@
         </div>
         <div class="field">
           <label>Username yang akan dibuat *</label>
-          <input type="text" id="f-username" placeholder="cth. budi_temp_akses">
+          <input type="text" id="f-username" placeholder="cth. 198501012010011001">
+          <div class="hint">Default diisi dengan NIP karyawan terpilih, bisa di-edit manual.</div>
         </div>
         <div class="field">
           <label>Role Name *</label>
-          <div style="display:flex; gap:8px;">
-            <input type="text" id="f-role-base" placeholder="Otomatis dari Unit/SubUnit" readonly style="flex:1; background:var(--panel); color:var(--text-dim);">
-            <select id="f-role-suffix" style="width:110px;" onchange="updateRoleName()">
+          <div style="display:flex; gap:8px; margin-bottom:8px;">
+            <input type="text" id="f-role" placeholder="cth. IIC_CSF_RO — ketik bebas atau pakai suggestion" style="flex:1;">
+            <select id="f-role-suffix" style="width:140px; flex-shrink:0;" onchange="applyRoleSuggestion()">
               <option value="RO">RO (Read Only)</option>
               <option value="RW">RW (Read Write)</option>
             </select>
           </div>
-          <div class="hint" id="role-base-hint">Isi Unit &amp; Sub Unit dulu untuk dapat suggestion role.</div>
-          <div style="margin-top:8px;">
+          <div class="hint" id="role-base-hint">Isi Divisi &amp; Unit dulu, lalu klik "Suggest" atau ketik manual.</div>
+          <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+            <button type="button" class="btn btn-secondary" onclick="fetchRoleSuggestion()" style="padding:6px 12px; font-size:12px;">Suggest from Divisi/Unit</button>
+            <span id="role-suggestion-info" style="font-size:11px; color:var(--text-dim);"></span>
+          </div>
+          <input type="hidden" id="f-role-base" value="">
+          <div style="margin-top:10px; margin-bottom:8px;">
             <label style="font-size:11.5px; color:var(--text-dim);">
-              <input type="checkbox" id="f-role-override-toggle" onchange="toggleRoleOverride()" style="accent-color:var(--accent); margin-right:4px;">
-              Edit manual nama role
+              <input type="checkbox" id="f-role-from-master" onchange="toggleRoleMaster()" style="accent-color:var(--accent); margin-right:4px;">
+              Pakai role yang sudah dibuat sebelumnya
             </label>
           </div>
-          <input type="text" id="f-role" class="hidden" placeholder="cth. readonly_orders" style="margin-top:6px;">
+          <select id="f-role-master" class="hidden" style="width:100%; margin-bottom:8px;" onchange="selectRoleMaster()">
+            <option value="">-- Pilih Role yang ada --</option>
+          </select>
           <div class="hint" id="role-hint">Pilih database type dulu untuk melihat catatan role.</div>
         </div>
         <div class="field hidden" id="f-allowlist-wrapper">
@@ -688,6 +699,99 @@
       </div>
     </div>
 
+    <!-- ROLE MANAGEMENT PAGE -->
+    <div id="page-roles" class="hidden page-narrow" style="max-width: 980px;">
+      <div class="page-head">
+        <h1>Role Management</h1>
+        <p>Kelola daftar role yang tersedia untuk provisioning. Role bisa dipakai ulang di form provisioning.</p>
+      </div>
+
+      <div class="card">
+        <h2>Tambah Role Baru</h2>
+        <div class="grid2">
+          <div class="field">
+            <label>Role Name *</label>
+            <input type="text" id="rm-role-name" placeholder="cth. IIC_CSF_RO">
+            <div class="hint">Bisa ketik bebas atau klik "Generate Suggestion" berdasarkan Divisi/Unit.</div>
+          </div>
+          <div class="field">
+            <label>Suffix *</label>
+            <select id="rm-suffix">
+              <option value="RO">RO (Read Only)</option>
+              <option value="RW">RW (Read Write)</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Divisi *</label>
+            <input type="text" id="rm-divisi" placeholder="cth. IT Infrastructure & Cyber Security">
+          </div>
+          <div class="field">
+            <label>Unit *</label>
+            <input type="text" id="rm-unit" placeholder="cth. Cyber Security & Fraud Management">
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn btn-secondary" onclick="rmGenerateSuggestion()">Generate Suggestion</button>
+          <button class="btn btn-primary" onclick="rmSaveRole()">Simpan Role</button>
+          <span id="rm-suggestion-hint" style="font-size:11.5px; color:var(--text-dim);"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Daftar Role <span style="color:var(--text-dim); font-weight:400; text-transform:none; letter-spacing:0;">(<span id="rm-count">0</span> role)</span></h2>
+        <div style="margin-bottom:12px;">
+          <input type="text" id="rm-search" placeholder="Cari role name, divisi, atau unit..." oninput="renderRoleTable()">
+        </div>
+        <table class="table-std">
+          <colgroup>
+            <col style="width:6%;"><col style="width:28%;"><col style="width:22%;"><col style="width:22%;"><col style="width:8%;"><col style="width:14%;">
+          </colgroup>
+          <thead><tr><th>ID</th><th>Role Name</th><th>Divisi</th><th>Unit</th><th>Suffix</th><th>Actions</th></tr></thead>
+          <tbody id="rm-tbody"></tbody>
+        </table>
+        <div id="rm-empty" class="hidden" style="padding:30px; text-align:center; color:var(--text-dim); font-size:13px;">
+          Belum ada role. Tambahkan role baru di atas.
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: Edit Role -->
+    <div id="modal-edit-role" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:50;">
+      <div class="card" style="width:520px; max-width:90vw; margin:0;">
+        <h2>Edit Role</h2>
+        <input type="hidden" id="edit-role-id">
+        <div class="grid2">
+          <div class="field">
+            <label>Role Name *</label>
+            <input type="text" id="edit-role-name">
+          </div>
+          <div class="field">
+            <label>Suffix *</label>
+            <select id="edit-role-suffix">
+              <option value="RO">RO (Read Only)</option>
+              <option value="RW">RW (Read Write)</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="field">
+            <label>Divisi *</label>
+            <input type="text" id="edit-role-divisi">
+          </div>
+          <div class="field">
+            <label>Unit *</label>
+            <input type="text" id="edit-role-unit">
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-secondary" onclick="closeEditRoleModal()">Batal</button>
+          <button class="btn btn-primary" onclick="rmUpdateRole()">Update</button>
+        </div>
+      </div>
+    </div>
+
 
     <div id="modal-overlay" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:50;">
       <div class="card" style="width:480px; max-width:90vw; margin:0;">
@@ -781,11 +885,14 @@ function showPage(page){
   document.getElementById('page-provisioning').classList.toggle('hidden', page !== 'provisioning');
   document.getElementById('page-dashboard').classList.toggle('hidden', page !== 'dashboard');
   document.getElementById('page-employee').classList.toggle('hidden', page !== 'employee');
+  document.getElementById('page-roles').classList.toggle('hidden', page !== 'roles');
   document.getElementById('nav-provisioning').classList.toggle('active', page === 'provisioning');
   document.getElementById('nav-dashboard').classList.toggle('active', page === 'dashboard');
   document.getElementById('nav-employee').classList.toggle('active', page === 'employee');
+  document.getElementById('nav-roles').classList.toggle('active', page === 'roles');
   if(page === 'dashboard') renderDashboard();
   if(page === 'employee') renderEmployeeTable();
+  if(page === 'roles') renderRoleTable();
   window.scrollTo(0,0);
 }
 
@@ -879,6 +986,7 @@ async function selectEmployee(target, nik){
     if(target === 'req'){
       document.getElementById('f-requester').value = e.nama;
       document.getElementById('f-nik').value = e.nik;
+      document.getElementById('f-username').value = e.nik;
       document.getElementById('f-divisi').value = e.divisi;
       document.getElementById('f-unit').value = e.unit;
       document.getElementById('f-subunit').value = e.subunit;
@@ -896,55 +1004,86 @@ async function selectEmployee(target, nik){
   }
 }
 
+/* ===== ROLE MASTER — REUSABLE ROLES ===== */
+async function loadRoleMaster(){
+  try {
+    const roles = await apiGet('/api/roles');
+    const sel = document.getElementById('f-role-master');
+    sel.innerHTML = '<option value="">-- Pilih Role yang ada --</option>' + 
+      roles.map(r => `<option value="${r.role_name}" data-suffix="${r.suffix}">${r.role_name} (${r.suffix})</option>`).join('');
+  } catch(err){
+    console.log('Role master load error:', err.message);
+  }
+}
+
+function toggleRoleMaster(){
+  const useMaster = document.getElementById('f-role-from-master').checked;
+  document.getElementById('f-role-master').classList.toggle('hidden', !useMaster);
+  document.getElementById('f-role-base').closest('.field').style.display = useMaster ? 'none' : 'block';
+  if(useMaster){
+    loadRoleMaster();
+  } else {
+    fetchRoleSuggestion();
+  }
+}
+
+function selectRoleMaster(){
+  const sel = document.getElementById('f-role-master');
+  const chosen = sel.value;
+  if(chosen){
+    const suffix = sel.options[sel.selectedIndex].dataset.suffix;
+    document.getElementById('f-role-suffix').value = suffix;
+    document.getElementById('f-role').value = chosen;
+    updateRoleName();
+  }
+}
+
 /* ===== ROLE NAME SUGGESTION (Divisi/Unit -> kode -> RO/RW) ===== */
+let lastSuggestedBase = '';
 async function fetchRoleSuggestion(){
   const divisi = document.getElementById('f-divisi').value.trim();
   const unit = document.getElementById('f-unit').value.trim();
-  const baseInput = document.getElementById('f-role-base');
   const hint = document.getElementById('role-base-hint');
+  const info = document.getElementById('role-suggestion-info');
 
   if(!divisi || !unit){
-    baseInput.value = '';
-    hint.textContent = 'Isi Divisi & Unit dulu untuk dapat suggestion role.';
-    updateRoleName();
+    hint.textContent = 'Isi Divisi & Unit dulu, lalu klik "Suggest" atau ketik manual.';
+    info.textContent = '';
     return;
   }
 
-  hint.textContent = 'Mencari suggestion...';
+  info.textContent = 'Mencari...';
   try {
     const result = await apiPost('/api/role-suggestion', { divisi, unit });
-    baseInput.value = result.suggested_base;
-    hint.textContent = `Dari Divisi (${result.divisi_code}) + Unit (${result.unit_code}).`;
-    updateRoleName();
+    lastSuggestedBase = result.suggested_base;
+    document.getElementById('f-role-base').value = result.suggested_base;
+    const suffix = document.getElementById('f-role-suffix').value;
+    document.getElementById('f-role').value = `${result.suggested_base}_${suffix}`;
+    hint.textContent = `Suggestion: ${result.divisi_code} (Divisi) + ${result.unit_code} (Unit). Bisa diedit manual.`;
+    info.textContent = '✓ Applied';
+    setTimeout(() => { info.textContent = ''; }, 2000);
   } catch(err){
-    hint.textContent = 'Gagal mengambil suggestion: ' + err.message;
+    info.textContent = 'Gagal: ' + err.message;
+  }
+}
+
+function applyRoleSuggestion(){
+  // When suffix dropdown changes and we have a suggestion base, update role name
+  const base = document.getElementById('f-role-base').value.trim();
+  if(base){
+    const suffix = document.getElementById('f-role-suffix').value;
+    document.getElementById('f-role').value = `${base}_${suffix}`;
   }
 }
 
 function updateRoleName(){
-  const override = document.getElementById('f-role-override-toggle').checked;
-  if(override) return; // f-role sudah diisi manual oleh user, jangan timpa
-  const base = document.getElementById('f-role-base').value.trim();
-  const suffix = document.getElementById('f-role-suffix').value;
-  document.getElementById('f-role').value = base ? `${base}_${suffix}` : '';
+  applyRoleSuggestion();
 }
 
-function toggleRoleOverride(){
-  const override = document.getElementById('f-role-override-toggle').checked;
-  const roleInput = document.getElementById('f-role');
-  const suggestionRow = document.getElementById('f-role-base').closest('div');
-  if(override){
-    roleInput.classList.remove('hidden');
-    roleInput.focus();
-  } else {
-    roleInput.classList.add('hidden');
-    updateRoleName(); // kembalikan ke hasil suggestion
-  }
-}
+function toggleRoleOverride(){ /* no-op, field is always editable now */ }
 
-// trigger suggestion kalau user edit Unit/SubUnit secara manual (bukan lewat autocomplete)
-document.getElementById('f-divisi').addEventListener('blur', fetchRoleSuggestion);
-document.getElementById('f-unit').addEventListener('blur', fetchRoleSuggestion);
+// trigger suggestion kalau user edit Divisi/Unit secara manual (bukan lewat autocomplete)
+// Removed auto-trigger on blur — user clicks "Suggest" button explicitly now
 
 document.addEventListener('click', function(e){
   if(!e.target.closest('.field')){
@@ -1107,10 +1246,12 @@ function resetForm(){
   document.getElementById('f-allowlist').value='';
   document.getElementById('f-allowlist-wrapper').classList.add('hidden');
   document.getElementById('role-hint').textContent = "Pilih database type dulu untuk melihat catatan role.";
-  document.getElementById('role-base-hint').textContent = "Isi Unit & Sub Unit dulu untuk dapat suggestion role.";
+  document.getElementById('role-base-hint').textContent = "Isi Divisi & Unit dulu, lalu klik \"Suggest\" atau ketik manual.";
   document.getElementById('f-role-suffix').value = 'RO';
-  document.getElementById('f-role-override-toggle').checked = false;
-  document.getElementById('f-role').classList.add('hidden');
+  document.getElementById('f-role-from-master').checked = false;
+  document.getElementById('f-role-master').classList.add('hidden');
+  document.getElementById('f-role-base').value = '';
+  document.getElementById('role-suggestion-info').textContent = '';
   document.getElementById('expiry-preview').textContent = "Expiry akan dihitung sebagai akhir dari quarter yang dipilih.";
 }
 
@@ -1151,6 +1292,7 @@ function actionButtons(rec){
   if(rec.status === 'LOCKED'){
     opts.push(`<option value="extend">Extend (Unlock)</option>`);
   }
+  opts.push(`<option value="delete" style="color:#e0584a;">Hapus</option>`);
   return `<select onchange="handleDashAction(${rec.id}, this.value); this.value='';" style="width:100%; padding:5px 4px; font-size:11px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:5px;">${opts.join('')}</select>`;
 }
 
@@ -1160,6 +1302,7 @@ function handleDashAction(id, action){
   if(action === 'mark-executed') dashMarkExecuted(id);
   if(action === 'lock') openLockModal(id);
   if(action === 'extend') openExtendModal(id);
+  if(action === 'delete') dashDeleteRecord(id);
 }
 
 let currentDashboardData = [];
@@ -1446,6 +1589,149 @@ async function renderEmployeeTable(){
     `).join('');
   } catch(err){
     document.getElementById('emp-table-tbody').innerHTML = `<tr><td colspan="6" style="color:var(--danger);">Gagal memuat: ${err.message}</td></tr>`;
+  }
+}
+
+/* ===== DELETE TRACKING RECORD ===== */
+async function dashDeleteRecord(id){
+  const rec = currentDashboardData.find(x => x.id === id);
+  if(!rec) return;
+  const confirmed = confirm(`Hapus record #${id} (${rec.username} — ${rec.requester})?\n\nData akan dihapus permanen dari tracking database.`);
+  if(!confirmed) return;
+  try {
+    await fetch(`/api/tracking/${id}`, { method: 'DELETE' });
+    renderDashboard();
+  } catch(err){
+    showAlert('Gagal menghapus: ' + err.message);
+  }
+}
+
+/* ===== ROLE MANAGEMENT ===== */
+async function renderRoleTable(){
+  const search = (document.getElementById('rm-search')?.value || '').trim();
+  try {
+    const rows = await apiGet('/api/roles?search=' + encodeURIComponent(search));
+    document.getElementById('rm-count').textContent = rows.length;
+    const tbody = document.getElementById('rm-tbody');
+    const empty = document.getElementById('rm-empty');
+
+    if(rows.length === 0){
+      tbody.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td style="font-family:var(--mono); color:var(--text-dim);">#${r.id}</td>
+        <td style="font-family:var(--mono);" title="${r.role_name}">${r.role_name}</td>
+        <td title="${r.divisi}">${r.divisi}</td>
+        <td title="${r.unit}">${r.unit}</td>
+        <td><span class="pill ${r.suffix === 'RW' ? 'pill-pending' : 'pill-active'}">${r.suffix}</span></td>
+        <td>
+          <div style="display:flex; gap:4px;">
+            <button class="btn btn-secondary" style="padding:4px 10px; font-size:11px;" onclick="openEditRoleModal(${r.id})">Edit</button>
+            <button class="btn btn-secondary" style="padding:4px 10px; font-size:11px; color:var(--danger); border-color:var(--danger);" onclick="rmDeleteRole(${r.id}, '${r.role_name.replace(/'/g,"\\'")}')">Hapus</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  } catch(err){
+    document.getElementById('rm-tbody').innerHTML = `<tr><td colspan="6" style="color:var(--danger);">Gagal memuat: ${err.message}</td></tr>`;
+  }
+}
+
+let roleTableData = [];
+async function rmGenerateSuggestion(){
+  const divisi = document.getElementById('rm-divisi').value.trim();
+  const unit = document.getElementById('rm-unit').value.trim();
+  const hint = document.getElementById('rm-suggestion-hint');
+  if(!divisi || !unit){
+    hint.textContent = 'Isi Divisi & Unit dulu.';
+    return;
+  }
+  hint.textContent = 'Generating...';
+  try {
+    const result = await apiPost('/api/role-suggestion', { divisi, unit });
+    const suffix = document.getElementById('rm-suffix').value;
+    document.getElementById('rm-role-name').value = `${result.suggested_base}_${suffix}`;
+    hint.textContent = `✓ ${result.divisi_code} + ${result.unit_code}`;
+  } catch(err){
+    hint.textContent = 'Gagal: ' + err.message;
+  }
+}
+
+async function rmSaveRole(){
+  const role_name = document.getElementById('rm-role-name').value.trim();
+  const divisi = document.getElementById('rm-divisi').value.trim();
+  const unit = document.getElementById('rm-unit').value.trim();
+  const suffix = document.getElementById('rm-suffix').value;
+  if(!role_name || !divisi || !unit){
+    showAlert('Role Name, Divisi, dan Unit wajib diisi.');
+    return;
+  }
+  try {
+    await apiPost('/api/roles', { role_name, divisi, unit, suffix });
+    document.getElementById('rm-role-name').value = '';
+    document.getElementById('rm-divisi').value = '';
+    document.getElementById('rm-unit').value = '';
+    document.getElementById('rm-suggestion-hint').textContent = '';
+    renderRoleTable();
+  } catch(err){
+    showAlert('Gagal menyimpan: ' + err.message);
+  }
+}
+
+async function rmDeleteRole(id, name){
+  if(!confirm(`Hapus role "${name}"? Data akan dihapus permanen.`)) return;
+  try {
+    await fetch(`/api/roles/${id}`, { method: 'DELETE' });
+    renderRoleTable();
+  } catch(err){
+    showAlert('Gagal menghapus: ' + err.message);
+  }
+}
+
+function openEditRoleModal(id){
+  // Get data from current table
+  fetch('/api/roles').then(r => r.json()).then(rows => {
+    const r = rows.find(x => x.id === id);
+    if(!r) return;
+    document.getElementById('edit-role-id').value = r.id;
+    document.getElementById('edit-role-name').value = r.role_name;
+    document.getElementById('edit-role-divisi').value = r.divisi;
+    document.getElementById('edit-role-unit').value = r.unit;
+    document.getElementById('edit-role-suffix').value = r.suffix;
+    document.getElementById('modal-edit-role').classList.remove('hidden');
+  });
+}
+
+function closeEditRoleModal(){
+  document.getElementById('modal-edit-role').classList.add('hidden');
+}
+
+async function rmUpdateRole(){
+  const id = document.getElementById('edit-role-id').value;
+  const role_name = document.getElementById('edit-role-name').value.trim();
+  const divisi = document.getElementById('edit-role-divisi').value.trim();
+  const unit = document.getElementById('edit-role-unit').value.trim();
+  const suffix = document.getElementById('edit-role-suffix').value;
+  if(!role_name || !divisi || !unit){
+    showAlert('Semua field wajib diisi.');
+    return;
+  }
+  try {
+    const res = await fetch(`/api/roles/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ role_name, divisi, unit, suffix })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || 'Gagal update');
+    closeEditRoleModal();
+    renderRoleTable();
+  } catch(err){
+    showAlert('Gagal update: ' + err.message);
   }
 }
 </script>
