@@ -1018,11 +1018,18 @@ async function loadRoleMaster(){
 
 function toggleRoleMaster(){
   const useMaster = document.getElementById('f-role-from-master').checked;
-  document.getElementById('f-role-master').classList.toggle('hidden', !useMaster);
-  document.getElementById('f-role-base').closest('.field').style.display = useMaster ? 'none' : 'block';
+  const dropdown = document.getElementById('f-role-master');
+  const mainInput = document.getElementById('f-role');
+  
   if(useMaster){
+    // Show dropdown, hide main input
+    dropdown.classList.remove('hidden');
+    mainInput.style.display = 'none';
     loadRoleMaster();
   } else {
+    // Hide dropdown, show main input
+    dropdown.classList.add('hidden');
+    mainInput.style.display = 'block';
     fetchRoleSuggestion();
   }
 }
@@ -1034,7 +1041,6 @@ function selectRoleMaster(){
     const suffix = sel.options[sel.selectedIndex].dataset.suffix;
     document.getElementById('f-role-suffix').value = suffix;
     document.getElementById('f-role').value = chosen;
-    updateRoleName();
   }
 }
 
@@ -1250,6 +1256,7 @@ function resetForm(){
   document.getElementById('f-role-suffix').value = 'RO';
   document.getElementById('f-role-from-master').checked = false;
   document.getElementById('f-role-master').classList.add('hidden');
+  document.getElementById('f-role').style.display = 'block';
   document.getElementById('f-role-base').value = '';
   document.getElementById('role-suggestion-info').textContent = '';
   document.getElementById('expiry-preview').textContent = "Expiry akan dihitung sebagai akhir dari quarter yang dipilih.";
