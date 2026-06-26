@@ -204,6 +204,20 @@ def merge_employees():
         conn.close()
 
 
+@app.route("/api/roles", methods=["GET"])
+def list_roles():
+    """Return daftar role yang sudah pernah dibuat (reusable)."""
+    conn = db.get_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute("SELECT id, role_name, divisi, unit, suffix, created_at FROM role_master ORDER BY role_name")
+        rows = cur.fetchall()
+        return jsonify(rows)
+    finally:
+        cur.close()
+        conn.close()
+
+
 @app.route("/api/role-suggestion", methods=["POST"])
 def role_suggestion():
     """
@@ -290,7 +304,7 @@ def generate_provisioning_script():
         return jsonify({"error": "Quarter/Tahun tidak valid"}), 400
 
     expiry_display, expiry_iso = scripts.quarter_end_date(quarter, year)
-    password = scripts.generate_password()
+    password = scripts.generate_passphrase()
 
     script_data = {
         "dbtype": dbtype,
@@ -360,6 +374,28 @@ def save_provisioning():
         )
         conn.commit()
         new_id = cur.lastrowid
+
+        # Simpan role ke role_master kalau belum ada
+        role_name = body["role"].strip()
+        cur.execute("SELECT id FROM role_master WHERE role_name = %s", (role_name,))
+        if not cur.fetchone():
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO role_master (role_name, divisi, unit, suffix, created_at)
+                    VALUES (%s, %s, %s, %s, NOW())
+                    """,
+                    (
+                        role_name,
+                        body["divisi"].strip(),
+                        body["unit"].strip(),
+                        body.get("suffix", "RO").strip(),
+                    ),
+                )
+                conn.commit()
+            except Exception:
+                pass  # Kalau gagal simpan, tidak masalah — role tetap jadi
+
         return jsonify({"id": new_id, "status": "PENDING"})
     except Exception as e:
         conn.rollback()

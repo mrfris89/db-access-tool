@@ -7,30 +7,32 @@ hanya generate teks SQL untuk dicopy manual oleh DBA.
 
 import secrets
 import string
+import os
 
-
-def generate_password(length=12):
-    """Password 12 karakter, crypto-secure, mengandung upper/lower/digit/symbol."""
-    upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"
-    lower = "abcdefghijkmnpqrstuvwxyz"
-    digits = "23456789"
-    special = "!@#%^&*"
-
-    pw_chars = [
-        secrets.choice(upper),
-        secrets.choice(lower),
-        secrets.choice(digits),
-        secrets.choice(special),
+# Load wordlist passphrase
+WORDLIST_PATH = os.path.join(os.path.dirname(__file__), "wordlist_id.txt")
+try:
+    with open(WORDLIST_PATH) as f:
+        WORDLIST = [line.strip() for line in f if line.strip()]
+except FileNotFoundError:
+    # Fallback wordlist kalau file tidak ada
+    WORDLIST = [
+        "Gajah", "Harimau", "Kucing", "Anjing", "Burung", "Ikan", "Pohon",
+        "Bunga", "Bulan", "Matahari", "Bintang", "Awan", "Hujan", "Angin",
+        "Batu", "Pasir", "Laut", "Gunung", "Lembah", "Padang",
     ]
-    all_chars = upper + lower + digits + special
-    pw_chars += [secrets.choice(all_chars) for _ in range(length - len(pw_chars))]
 
-    # shuffle pakai secrets agar tidak predictable
-    for i in range(len(pw_chars) - 1, 0, -1):
-        j = secrets.randbelow(i + 1)
-        pw_chars[i], pw_chars[j] = pw_chars[j], pw_chars[i]
 
-    return "".join(pw_chars)
+def generate_passphrase():
+    """
+    Generate passphrase: 3 kata random dari wordlist bahasa Indonesia + angka + simbol.
+    Format: Word1-Word2-Word3-NN!
+    Contoh: Gajah-Merah-Pantai-47!
+    """
+    words = [secrets.choice(WORDLIST) for _ in range(3)]
+    number = secrets.randbelow(100)  # 00-99
+    symbol = secrets.choice("!@#$%^&*")
+    return f"{words[0]}-{words[1]}-{words[2]}-{number:02d}{symbol}"
 
 
 VOWELS = set("AEIOU")

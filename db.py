@@ -101,6 +101,18 @@ def init_schema():
             )
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS role_master (
+                id              INT AUTO_INCREMENT PRIMARY KEY,
+                role_name       VARCHAR(150) NOT NULL UNIQUE,
+                divisi          VARCHAR(150) NOT NULL,
+                unit            VARCHAR(150) NOT NULL,
+                suffix          ENUM('RO', 'RW') NOT NULL,
+                created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
         conn.commit()
         _migrate_add_last_updated(conn)
         _migrate_add_divisi(conn)
