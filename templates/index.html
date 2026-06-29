@@ -276,6 +276,7 @@
     <div class="group-label">Administrasi</div>
     <a href="#" id="nav-employee" onclick="showPage('employee')">Data Karyawan</a>
     <a href="#" id="nav-roles" onclick="showPage('roles')">Role Management</a>
+    <a href="#" id="nav-clusters" onclick="showPage('clusters')">Cluster Management</a>
   </div>
 
   <div class="main">
@@ -341,21 +342,23 @@
 
       <div class="card">
         <h2>Target Database <span style="color:var(--danger); font-weight:400; text-transform:none; letter-spacing:0;">— semua wajib diisi</span></h2>
-        <div class="grid2">
+        <div class="field">
+          <label>DB Host / Target (Cluster) *</label>
+          <select id="f-cluster-id" onchange="onProvisioningClusterChange()" style="width:100%;">
+            <option value="">— Pilih RDBMS dan Cluster —</option>
+          </select>
+          <div class="hint" id="cluster-load-hint">Memuat daftar cluster...</div>
+        </div>
+        <div id="prov-oracle-service-field" class="hidden">
+          <div style="border-top:1px solid var(--border); margin:16px 0;"></div>
           <div class="field">
-            <label>Database Type *</label>
-            <select id="f-dbtype">
-              <option value="">— Pilih —</option>
-              <option value="oracle">Oracle</option>
-              <option value="mysql">MySQL</option>
-              <option value="postgres">PostgreSQL</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>DB Host / Target *</label>
-            <input type="text" id="f-host" placeholder="cth. prod-db-01.internal">
+            <label>Service Name (Oracle) *</label>
+            <input type="text" id="f-oracle-service-name" placeholder="cth. ORCLPDB1" style="font-family:var(--mono);">
+            <div class="hint">Wajib diisi khusus untuk koneksi Oracle.</div>
           </div>
         </div>
+        <input type="hidden" id="f-dbtype">
+        <div style="border-top:1px solid var(--border); margin:16px 0;"></div>
         <div class="field">
           <label>Username yang akan dibuat *</label>
           <input type="text" id="f-username" placeholder="cth. 198501012010011001">
@@ -792,6 +795,121 @@
       </div>
     </div>
 
+    <!-- CLUSTER MANAGEMENT PAGE -->
+    <div id="page-clusters" class="hidden page-narrow" style="max-width:980px;">
+      <div class="page-head">
+        <h1>Cluster Management</h1>
+        <p>Kelola daftar cluster database. Data ini dipakai sebagai pilihan Target Database saat provisioning.</p>
+      </div>
+
+      <div class="card">
+        <h2>Upload Excel</h2>
+        <p style="font-size:12px; color:var(--text-dim); margin:0 0 12px 0;">File harus berisi kolom RDBMS (Oracle/MySQL/PostgreSQL) dan Cluster Name.</p>
+        <div style="border:2px dashed var(--border); border-radius:8px; padding:24px; text-align:center;">
+          <div style="margin-bottom:12px;">
+            <input type="file" id="cluster-excel-input" accept=".xlsx,.xls" onchange="handleClusterFileSelect()" style="display:none;">
+            <button class="btn btn-secondary" onclick="document.getElementById('cluster-excel-input').click()">Pilih File Excel</button>
+          </div>
+          <div id="cluster-file-info" style="font-size:12px; color:var(--text-dim);">Belum ada file dipilih</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Tambah Cluster Manual</h2>
+        <div class="grid2">
+          <div class="field">
+            <label>RDBMS *</label>
+            <select id="cluster-rdbms" style="width:100%;">
+              <option value="">— Pilih —</option>
+              <option value="oracle">Oracle</option>
+              <option value="mysql">MySQL</option>
+              <option value="postgres">PostgreSQL</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Cluster Name *</label>
+            <input type="text" id="cluster-name" placeholder="cth. ora-prod-cluster-01">
+          </div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" onclick="createCluster()">Simpan Cluster</button>
+          <span id="cluster-create-status" style="font-size:11px; color:var(--text-dim); padding-top:6px;"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Daftar Cluster <span style="color:var(--text-dim); font-weight:400; text-transform:none; letter-spacing:0;">(<span id="cluster-count">0</span> cluster)</span></h2>
+        <div style="margin-bottom:12px;">
+          <input type="text" id="cluster-search" placeholder="Cari RDBMS atau cluster name..." oninput="renderClusterTable()">
+        </div>
+        <table class="table-std">
+          <colgroup>
+            <col style="width:6%;"><col style="width:18%;"><col style="width:30%;"><col style="width:20%;"><col style="width:26%;">
+          </colgroup>
+          <thead><tr><th>ID</th><th>RDBMS</th><th>Cluster Name</th><th>Dipakai</th><th>Actions</th></tr></thead>
+          <tbody id="cluster-tbody"></tbody>
+        </table>
+        <div id="cluster-empty" class="hidden" style="padding:30px; text-align:center; color:var(--text-dim); font-size:13px;">
+          Belum ada cluster. Tambahkan cluster baru di atas atau upload Excel.
+        </div>
+      </div>
+
+      <!-- Modal: Preview & Mapping Excel -->
+      <div id="modal-cluster-upload" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:50;">
+        <div class="card" style="width:620px; max-width:90vw; margin:0;">
+          <h2>Preview & Mapping Kolom</h2>
+          <p style="font-size:12px; color:var(--text-dim); margin:0 0 12px 0;">Pilih kolom mana yang berisi RDBMS dan Cluster Name dari file Excel kamu.</p>
+          <div style="overflow-x:auto; margin-bottom:14px;">
+            <table class="table-std" style="font-size:12px;">
+              <thead><tr id="preview-header-row" style="background:var(--panel);"></tr></thead>
+              <tbody id="preview-data-rows"></tbody>
+            </table>
+          </div>
+          <div class="grid2">
+            <div class="field">
+              <label>Kolom RDBMS *</label>
+              <select id="map-rdbms-col" style="width:100%; font-size:12px;"></select>
+            </div>
+            <div class="field">
+              <label>Kolom Cluster Name *</label>
+              <select id="map-cluster-col" style="width:100%; font-size:12px;"></select>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-secondary" onclick="closeClusterUploadModal()">Batal</button>
+            <button class="btn btn-primary" onclick="confirmClusterMerge()">Simpan & Merge</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal: Edit Cluster -->
+      <div id="modal-edit-cluster" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:50;">
+        <div class="card" style="width:480px; max-width:90vw; margin:0;">
+          <h2>Edit Cluster</h2>
+          <input type="hidden" id="edit-cluster-id">
+          <div class="grid2">
+            <div class="field">
+              <label>RDBMS *</label>
+              <select id="edit-cluster-rdbms" style="width:100%;">
+                <option value="">— Pilih —</option>
+                <option value="oracle">Oracle</option>
+                <option value="mysql">MySQL</option>
+                <option value="postgres">PostgreSQL</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Cluster Name *</label>
+              <input type="text" id="edit-cluster-name">
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-secondary" onclick="closeEditClusterModal()">Batal</button>
+            <button class="btn btn-primary" onclick="updateCluster()">Update</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
 
     <div id="modal-overlay" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:center; justify-content:center; z-index:50;">
       <div class="card" style="width:480px; max-width:90vw; margin:0;">
@@ -886,13 +1004,16 @@ function showPage(page){
   document.getElementById('page-dashboard').classList.toggle('hidden', page !== 'dashboard');
   document.getElementById('page-employee').classList.toggle('hidden', page !== 'employee');
   document.getElementById('page-roles').classList.toggle('hidden', page !== 'roles');
+  document.getElementById('page-clusters').classList.toggle('hidden', page !== 'clusters');
   document.getElementById('nav-provisioning').classList.toggle('active', page === 'provisioning');
   document.getElementById('nav-dashboard').classList.toggle('active', page === 'dashboard');
   document.getElementById('nav-employee').classList.toggle('active', page === 'employee');
   document.getElementById('nav-roles').classList.toggle('active', page === 'roles');
+  document.getElementById('nav-clusters').classList.toggle('active', page === 'clusters');
   if(page === 'dashboard') renderDashboard();
   if(page === 'employee') renderEmployeeTable();
   if(page === 'roles') renderRoleTable();
+  if(page === 'clusters') renderClusterTable();
   window.scrollTo(0,0);
 }
 
@@ -907,11 +1028,32 @@ const allowlistConfig = {
   postgres: { label: "Host Allowlist (PostgreSQL) *", hint: "IP/CIDR client yang diizinkan connect (cth. 10.20.30.0/24). DBA wajib mendaftarkan entry ini secara manual di pg_hba.conf — PostgreSQL tidak otomatis update file tersebut." },
 };
 
-document.getElementById('f-dbtype').addEventListener('change', function(){
-  const v = this.value;
-  document.getElementById('role-hint').textContent = v ? roleHints[v] : "Pilih database type dulu untuk melihat catatan role.";
+async function loadProvisioningClusters(){
+  try {
+    const clusters = await apiGet('/api/clusters');
+    const sel = document.getElementById('f-cluster-id');
+    sel.innerHTML = '<option value="">— Pilih RDBMS dan Cluster —</option>' +
+      clusters.map(c => `<option value="${c.id}" data-rdbms="${c.rdbms}">${c.rdbms} — ${c.cluster_name}</option>`).join('');
+    document.getElementById('cluster-load-hint').textContent = clusters.length > 0 ? '' : 'Belum ada cluster. Buat di menu Cluster Management dulu.';
+  } catch(err){
+    document.getElementById('cluster-load-hint').textContent = 'Gagal memuat cluster: ' + err.message;
+  }
+}
+
+function onProvisioningClusterChange(){
+  const sel = document.getElementById('f-cluster-id');
+  const rdbms = sel.options[sel.selectedIndex].dataset.rdbms;
+  document.getElementById('f-dbtype').value = rdbms || '';
+  document.getElementById('prov-oracle-service-field').classList.toggle('hidden', rdbms !== 'oracle');
+  
+  // Trigger role hint update
+  const roleHints = {oracle: "Oracle: User akan diberikan privilege standard.", mysql: "MySQL: Nama role/privilege yang akan di-GRANT.", postgres: "PostgreSQL: Nama role yang akan di-GRANT."};
+  document.getElementById('role-hint').textContent = rdbms ? roleHints[rdbms] || "—" : "Pilih database type dulu untuk melihat catatan role.";
+  
+  // Update allowlist visibility
   const wrapper = document.getElementById('f-allowlist-wrapper');
-  const cfg = allowlistConfig[v];
+  const allowlistConfig = {mysql: {label: 'Host Allowlist (MySQL)', hint: 'CIDR block untuk MySQL (cth. 10.0.0.0/8)'}, postgres: {label: 'Host Allowlist (PostgreSQL)', hint: 'CIDR block untuk PostgreSQL (cth. 10.0.0.0/8)'}};
+  const cfg = allowlistConfig[rdbms];
   if(cfg){
     wrapper.classList.remove('hidden');
     document.getElementById('f-allowlist-label').textContent = cfg.label;
@@ -920,7 +1062,14 @@ document.getElementById('f-dbtype').addEventListener('change', function(){
     wrapper.classList.add('hidden');
     document.getElementById('f-allowlist').value = '';
   }
-});
+}
+
+// Trigger cluster load saat page provisioning dibuka
+const originalShowPage = window.showPage;
+window.showPage = function(page){
+  originalShowPage(page);
+  if(page === 'provisioning') loadProvisioningClusters();
+};
 
 function quarterEndDate(quarter, year){
   const map = { Q1: "31 Maret", Q2: "30 Juni", Q3: "30 September", Q4: "31 Desember" };
@@ -1099,7 +1248,7 @@ document.addEventListener('click', function(e){
 
 /* ===== PROVISIONING FORM ===== */
 function validateForm(){
-  const required = ['f-requester','f-nik','f-divisi','f-unit','f-subunit','f-createdby','f-dbtype','f-host','f-username','f-role','f-quarter','f-year'];
+  const required = ['f-requester','f-nik','f-divisi','f-unit','f-subunit','f-createdby','f-cluster-id','f-username','f-role','f-quarter','f-year'];
   for(const id of required){
     const el = document.getElementById(id);
     if(!el.value || el.value.trim()===''){
@@ -1114,6 +1263,15 @@ function validateForm(){
     return false;
   }
   const dbtype = document.getElementById('f-dbtype').value;
+  if(dbtype === 'oracle'){
+    const serviceName = document.getElementById('f-oracle-service-name').value.trim();
+    if(!serviceName){
+      document.getElementById('f-oracle-service-name').style.borderColor = 'var(--danger)';
+      document.getElementById('f-oracle-service-name').focus();
+      return false;
+    }
+    document.getElementById('f-oracle-service-name').style.borderColor = 'var(--border)';
+  }
   if(allowlistConfig[dbtype]){
     const allowlistEl = document.getElementById('f-allowlist');
     if(!allowlistEl.value || allowlistEl.value.trim() === ''){
@@ -1136,14 +1294,18 @@ async function goToPreview(){
     divisi: document.getElementById('f-divisi').value.trim(),
     subunit: document.getElementById('f-subunit').value.trim(),
     created_by: document.getElementById('f-createdby').value.trim(),
+    cluster_id: document.getElementById('f-cluster-id').value.trim(),
     dbtype: document.getElementById('f-dbtype').value,
-    host: document.getElementById('f-host').value.trim(),
     username: document.getElementById('f-username').value.trim(),
     role: document.getElementById('f-role').value.trim(),
     allowlist: document.getElementById('f-allowlist').value.trim(),
     quarter: document.getElementById('f-quarter').value,
     year: document.getElementById('f-year').value.trim(),
   };
+  
+  if(payload.dbtype === 'oracle'){
+    payload.oracle_service_name = document.getElementById('f-oracle-service-name').value.trim();
+  }
 
   const genBtn = document.querySelector('#step-form .btn-primary');
   genBtn.disabled = true;
@@ -1151,7 +1313,12 @@ async function goToPreview(){
 
   try {
     const result = await apiPost('/api/provisioning/generate-script', payload);
-    state = { ...payload, password: result.password, expiryISO: result.expiry_iso, expiryDisplay: result.expiry_display };
+    
+    // Get cluster name untuk display
+    const clusterSel = document.getElementById('f-cluster-id');
+    const clusterName = clusterSel.options[clusterSel.selectedIndex].text;
+    
+    state = { ...payload, password: result.password, expiryISO: result.expiry_iso, expiryDisplay: result.expiry_display, clusterName };
 
     document.getElementById('gen-password').textContent = state.password;
     document.getElementById('sum-requester').textContent = state.requester;
@@ -1161,7 +1328,7 @@ async function goToPreview(){
     document.getElementById('sum-subunit').textContent = state.subunit;
     document.getElementById('sum-createdby').textContent = state.created_by;
     document.getElementById('sum-dbtype').textContent = state.dbtype;
-    document.getElementById('sum-host').textContent = state.host;
+    document.getElementById('sum-host').textContent = state.clusterName;
     document.getElementById('sum-username').textContent = state.username;
     document.getElementById('sum-role').textContent = state.role || '(tidak diisi)';
     const allowlistRow = document.getElementById('sum-allowlist-row');
@@ -1197,6 +1364,11 @@ async function confirmSave(){
   btn.textContent = 'Saving...';
   try {
     const payload = { ...state, expiry_iso: state.expiryISO };
+    // Rename fields to match backend expectation
+    payload.cluster_id = payload.cluster_id;  // already set from goToPreview
+    if(!payload.cluster_id) throw new Error('Cluster ID missing');
+    // oracle_service_name already included if dbtype = oracle (from goToPreview)
+    
     const result = await apiPost('/api/provisioning/save', payload);
     state.id = result.id;
     state.createdAtDisplay = new Date().toISOString().slice(0,19).replace('T',' ');
@@ -1247,7 +1419,11 @@ function resetForm(){
   });
   document.getElementById('f-createdby').value = '';
   document.getElementById('createdby-selected').textContent = '';
+  document.getElementById('f-cluster-id').value = '';
   document.getElementById('f-dbtype').value='';
+  document.getElementById('f-oracle-service-name').value = '';
+  document.getElementById('prov-oracle-service-field').classList.add('hidden');
+  document.getElementById('cluster-load-hint').textContent = '';
   document.getElementById('f-quarter').value='';
   document.getElementById('f-allowlist').value='';
   document.getElementById('f-allowlist-wrapper').classList.add('hidden');
@@ -1576,7 +1752,187 @@ async function confirmEmployeeMerge(){
   }
 }
 
-async function renderEmployeeTable(){
+async function renderClusterTable(){
+  const search = (document.getElementById('cluster-search')?.value || '').trim();
+  try {
+    const rows = await apiGet('/api/clusters?search=' + encodeURIComponent(search));
+    document.getElementById('cluster-count').textContent = rows.length;
+    const tbody = document.getElementById('cluster-tbody');
+    const empty = document.getElementById('cluster-empty');
+
+    if(rows.length === 0){
+      tbody.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    tbody.innerHTML = rows.map(r => {
+      const canDelete = r.used_count === 0;
+      return `
+        <tr>
+          <td style="font-family:var(--mono); color:var(--text-dim);">#${r.id}</td>
+          <td>${r.rdbms}</td>
+          <td style="font-family:var(--mono);" title="${r.cluster_name}">${r.cluster_name}</td>
+          <td>${r.used_count > 0 ? r.used_count + ' user' : '<span style="color:var(--text-dim);">belum dipakai</span>'}</td>
+          <td>
+            <div style="display:flex; gap:4px;">
+              <button class="btn btn-secondary" style="padding:4px 10px; font-size:11px;" onclick="openEditClusterModal(${r.id})">Edit</button>
+              <button class="btn btn-secondary" style="padding:4px 10px; font-size:11px; color:${canDelete ? 'var(--danger)' : 'var(--text-dim)'}; border-color:${canDelete ? 'var(--danger)' : 'var(--border)'}; cursor:${canDelete ? 'pointer' : 'not-allowed'};" onclick="${canDelete ? 'deleteCluster(' + r.id + ')' : 'alert("Cluster ini masih dipakai, tidak bisa dihapus")'}" ${!canDelete ? 'disabled' : ''}>Hapus</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch(err){
+    document.getElementById('cluster-tbody').innerHTML = `<tr><td colspan="5" style="color:var(--danger);">Gagal memuat: ${err.message}</td></tr>`;
+  }
+}
+
+let clusterUploadData = null;
+function handleClusterFileSelect(){
+  const file = document.getElementById('cluster-excel-input').files[0];
+  if(!file) return;
+  document.getElementById('cluster-file-info').textContent = `Membaca ${file.name}...`;
+  const formData = new FormData();
+  formData.append('file', file);
+  fetch('/api/clusters/upload-preview', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+      if(data.error) throw new Error(data.error);
+      clusterUploadData = data;
+      renderClusterUploadPreview(data);
+      document.getElementById('modal-cluster-upload').classList.remove('hidden');
+      document.getElementById('cluster-file-info').textContent = `${file.name} — ${data.total_rows} baris`;
+    })
+    .catch(err => {
+      document.getElementById('cluster-file-info').textContent = `Gagal: ${err.message}`;
+    });
+}
+
+function renderClusterUploadPreview(data){
+  const headerRow = document.getElementById('preview-header-row');
+  const dataRows = document.getElementById('preview-data-rows');
+  const rdbmsSelect = document.getElementById('map-rdbms-col');
+  const clusterSelect = document.getElementById('map-cluster-col');
+
+  // Header row
+  headerRow.innerHTML = data.header.map((h, idx) => `<th>${h}</th>`).join('');
+
+  // Data preview
+  dataRows.innerHTML = data.preview_rows.map(row => `
+    <tr style="font-size:11px;">
+      ${row.map(cell => `<td>${cell}</td>`).join('')}
+    </tr>
+  `).join('');
+
+  // Column mapping dropdowns
+  rdbmsSelect.innerHTML = `<option value="">— Pilih kolom RDBMS —</option>` +
+    data.header.map((h, idx) => `<option value="${idx}">${h}</option>`).join('');
+  clusterSelect.innerHTML = `<option value="">— Pilih kolom Cluster Name —</option>` +
+    data.header.map((h, idx) => `<option value="${idx}">${h}</option>`).join('');
+}
+
+function closeClusterUploadModal(){
+  document.getElementById('modal-cluster-upload').classList.add('hidden');
+  clusterUploadData = null;
+  document.getElementById('cluster-excel-input').value = '';
+  document.getElementById('cluster-file-info').textContent = 'Belum ada file dipilih';
+}
+
+async function confirmClusterMerge(){
+  if(!clusterUploadData) return;
+  const rdbmsCol = parseInt(document.getElementById('map-rdbms-col').value);
+  const clusterCol = parseInt(document.getElementById('map-cluster-col').value);
+  if(isNaN(rdbmsCol) || isNaN(clusterCol)){
+    alert('Pilih kolom mapping dulu');
+    return;
+  }
+  try {
+    const result = await apiPost('/api/clusters/merge', {
+      mapping: { rdbms: rdbmsCol, cluster_name: clusterCol },
+      rows: clusterUploadData.all_rows
+    });
+    closeClusterUploadModal();
+    showAlert(`Berhasil merge ${result.merged} cluster${result.skipped.length > 0 ? ', skip ' + result.skipped.length + ' baris invalid' : ''}`);
+    renderClusterTable();
+  } catch(err){
+    showAlert('Gagal merge: ' + err.message);
+  }
+}
+
+async function createCluster(){
+  const rdbms = document.getElementById('cluster-rdbms').value.trim();
+  const cluster_name = document.getElementById('cluster-name').value.trim();
+  if(!rdbms || !cluster_name){
+    showAlert('RDBMS dan Cluster Name wajib diisi');
+    return;
+  }
+  try {
+    await apiPost('/api/clusters', { rdbms, cluster_name });
+    document.getElementById('cluster-rdbms').value = '';
+    document.getElementById('cluster-name').value = '';
+    document.getElementById('cluster-create-status').textContent = '✓ Tersimpan';
+    setTimeout(() => { document.getElementById('cluster-create-status').textContent = ''; }, 2000);
+    renderClusterTable();
+  } catch(err){
+    showAlert('Gagal simpan: ' + err.message);
+  }
+}
+
+function openEditClusterModal(id){
+  fetch('/api/clusters').then(r => r.json()).then(rows => {
+    const r = rows.find(x => x.id === id);
+    if(!r) return;
+    document.getElementById('edit-cluster-id').value = r.id;
+    document.getElementById('edit-cluster-rdbms').value = r.rdbms;
+    document.getElementById('edit-cluster-name').value = r.cluster_name;
+    document.getElementById('modal-edit-cluster').classList.remove('hidden');
+  });
+}
+
+function closeEditClusterModal(){
+  document.getElementById('modal-edit-cluster').classList.add('hidden');
+}
+
+async function updateCluster(){
+  const id = document.getElementById('edit-cluster-id').value;
+  const rdbms = document.getElementById('edit-cluster-rdbms').value.trim();
+  const cluster_name = document.getElementById('edit-cluster-name').value.trim();
+  if(!rdbms || !cluster_name){
+    showAlert('Semua field wajib diisi');
+    return;
+  }
+  try {
+    const res = await fetch(`/api/clusters/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ rdbms, cluster_name })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || 'Gagal update');
+    closeEditClusterModal();
+    renderClusterTable();
+  } catch(err){
+    showAlert('Gagal update: ' + err.message);
+  }
+}
+
+async function deleteCluster(id){
+  if(!confirm('Hapus cluster ini? Data akan dihapus permanen.')) return;
+  try {
+    const res = await fetch(`/api/clusters/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error || 'Gagal hapus');
+    renderClusterTable();
+  } catch(err){
+    showAlert('Gagal hapus: ' + err.message);
+  }
+}
+
+/* ===== END CLUSTER MANAGEMENT ===== */
+
+
+
   const search = document.getElementById('emp-table-search').value.trim();
   try {
     const result = await apiGet('/api/employees?search=' + encodeURIComponent(search));
