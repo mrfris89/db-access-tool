@@ -205,6 +205,252 @@ def merge_employees():
 
 
 
+@app.route("/api/clusters/upload-preview", methods=["POST"])
+def upload_preview_clusters():
+    """
+    Terima file excel, baca header + beberapa baris pertama,
+    kembalikan mentahan agar frontend bisa tampilkan UI mapping kolom.
+    Sama pola dengan upload_preview_employees.
+    """
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"error": "File tidak ditemukan"}), 400
+
+    try:
+        wb = load_workbook(file, read_only=True, data_only=True)
+        ws = wb.active
+        rows = []
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            rows.append([("" if c is None else str(c)) for c in row])
+            if i >= 500:
+                break
+    except Exception as e:
+        return jsonify({"error": f"Gagal membaca file: {e}"}), 400
+
+    if len(rows) < 1:
+        return jsonify({"error": "File kosong"}), 400
+
+    header = rows[0]
+    data_rows = rows[1:]
+
+    return jsonify(
+        {
+            "header": header,
+            "total_rows": len(data_rows),
+            "preview_rows": data_rows[:3],
+            "all_rows": data_rows,
+        }
+    )
+
+
+_VALID_RDBMS = {"oracle", "mysql", "postgres"}
+_RDBMS_ALIASES = {
+    "oracle": "oracle",
+    "ora": "oracle",
+    "mysql": "mysql",
+    "my sql": "mysql",
+    "postgres": "postgres",
+    "postgresql": "postgres",
+    "pg": "postgres",
+}
+
+
+def _normalize_rdbms(raw):
+    """Terima variasi penulisan RDBMS dari excel (Oracle/ORACLE/Postgre/PostgreSQL/dll)."""
+    key = (raw or "").strip().lower()
+    return _RDBMS_ALIASES.get(key)
+
+
+@app.route("/api/clusters/merge", methods=["POST"])
+def merge_clusters():
+    """
+    Body JSON:
+    {
+      "mapping": {"rdbms": 0, "cluster_name": 1},
+      "rows": [["Oracle", "ora-prod-cluster-01"], ...]
+    }
+    UPSERT berdasarkan unique (rdbms, cluster_name).
+    Baris dengan rdbms yang tidak dikenali (bukan Oracle/MySQL/Postgre) akan di-skip
+    dan dilaporkan balik ke frontend.
+    """
+    body = request.get_json(force=True)
+    mapping = body.get("mapping")
+    rows = body.get("rows")
+
+    if not mapping or rows is None:
+        return jsonify({"error": "mapping dan rows wajib diisi"}), 400
+
+    required_keys = {"rdbms", "cluster_name"}
+    if not required_keys.issubset(mapping.keys()):
+        return jsonify({"error": f"mapping harus berisi: {required_keys}"}), 400
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    skipped = []
+    try:
+        conn.start_transaction()
+        upsert_sql = """
+            INSERT INTO db_cluster_master (rdbms, cluster_name, created_at)
+            VALUES (%s, %s, NOW())
+            ON DUPLICATE KEY UPDATE
+                cluster_name = VALUES(cluster_name)
+        """
+        values = []
+        for idx, row in enumerate(rows):
+            try:
+                rdbms_raw = str(row[mapping["rdbms"]]).strip()
+                cluster_name = str(row[mapping["cluster_name"]]).strip()
+            except IndexError:
+                continue
+            if not cluster_name:
+                continue
+            rdbms = _normalize_rdbms(rdbms_raw)
+            if not rdbms:
+                skipped.append({"row": idx + 2, "rdbms": rdbms_raw, "cluster_name": cluster_name})
+                continue
+            values.append((rdbms, cluster_name))
+        if values:
+            cur.executemany(upsert_sql, values)
+        conn.commit()
+        return jsonify({"merged": len(values), "skipped": skipped})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/clusters", methods=["GET"])
+def list_clusters():
+    """
+    Return daftar cluster + jumlah access_tracking yang memakai (kolom 'used_count'),
+    dipakai frontend untuk disable tombol Hapus.
+    """
+    search = request.args.get("search", "").strip()
+    conn = db.get_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        base_sql = """
+            SELECT c.id, c.rdbms, c.cluster_name, c.created_at,
+                   COUNT(t.id) AS used_count
+            FROM db_cluster_master c
+            LEFT JOIN access_tracking t ON t.db_cluster_id = c.id
+        """
+        params = []
+        if search:
+            base_sql += " WHERE c.rdbms LIKE %s OR c.cluster_name LIKE %s"
+            like = f"%{search}%"
+            params.extend([like, like])
+        base_sql += " GROUP BY c.id ORDER BY c.rdbms, c.cluster_name"
+        cur.execute(base_sql, params)
+        rows = cur.fetchall()
+        for r in rows:
+            if isinstance(r.get("created_at"), datetime):
+                r["created_at"] = r["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+        return jsonify(rows)
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/clusters", methods=["POST"])
+def create_cluster():
+    """Buat cluster baru secara manual (bukan via excel)."""
+    body = request.get_json(force=True)
+    rdbms_raw = (body.get("rdbms") or "").strip()
+    cluster_name = (body.get("cluster_name") or "").strip()
+
+    rdbms = _normalize_rdbms(rdbms_raw)
+    if not rdbms:
+        return jsonify({"error": "rdbms harus salah satu dari Oracle, MySQL, Postgres"}), 400
+    if not cluster_name:
+        return jsonify({"error": "cluster_name wajib diisi"}), 400
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO db_cluster_master (rdbms, cluster_name, created_at) VALUES (%s, %s, NOW())",
+            (rdbms, cluster_name),
+        )
+        conn.commit()
+        return jsonify({"id": cur.lastrowid, "rdbms": rdbms, "cluster_name": cluster_name})
+    except Exception as e:
+        conn.rollback()
+        if "Duplicate" in str(e):
+            return jsonify({"error": f"Cluster '{cluster_name}' ({rdbms}) sudah ada"}), 409
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/clusters/<int:cluster_id>", methods=["PUT"])
+def update_cluster(cluster_id):
+    """Update cluster. Tidak bisa ganti rdbms kalau sudah dipakai (data integrity)."""
+    body = request.get_json(force=True)
+    rdbms_raw = (body.get("rdbms") or "").strip()
+    cluster_name = (body.get("cluster_name") or "").strip()
+
+    rdbms = _normalize_rdbms(rdbms_raw)
+    if not rdbms:
+        return jsonify({"error": "rdbms harus salah satu dari Oracle, MySQL, Postgres"}), 400
+    if not cluster_name:
+        return jsonify({"error": "cluster_name wajib diisi"}), 400
+
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT COUNT(*) FROM access_tracking WHERE db_cluster_id = %s", (cluster_id,)
+        )
+        used_count = cur.fetchone()[0]
+        cur.execute("SELECT rdbms FROM db_cluster_master WHERE id = %s", (cluster_id,))
+        existing = cur.fetchone()
+        if not existing:
+            return jsonify({"error": "Cluster tidak ditemukan"}), 404
+        if used_count > 0 and existing[0] != rdbms:
+            return jsonify({"error": "Tidak bisa ubah RDBMS, cluster ini masih dipakai di tracking"}), 409
+
+        cur.execute(
+            "UPDATE db_cluster_master SET rdbms=%s, cluster_name=%s WHERE id=%s",
+            (rdbms, cluster_name, cluster_id),
+        )
+        conn.commit()
+        return jsonify({"id": cluster_id, "updated": True})
+    except Exception as e:
+        conn.rollback()
+        if "Duplicate" in str(e):
+            return jsonify({"error": f"Cluster '{cluster_name}' ({rdbms}) sudah ada"}), 409
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route("/api/clusters/<int:cluster_id>", methods=["DELETE"])
+def delete_cluster(cluster_id):
+    """
+    Hapus cluster. Block kalau masih dipakai di access_tracking
+    (FK ON DELETE RESTRICT akan throw error, kita tangkap jadi pesan friendly).
+    """
+    conn = db.get_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM db_cluster_master WHERE id = %s", (cluster_id,))
+        conn.commit()
+        return jsonify({"id": cluster_id, "deleted": True})
+    except Exception as e:
+        conn.rollback()
+        if "foreign key constraint" in str(e).lower() or "1451" in str(e):
+            return jsonify({"error": "Cluster tidak bisa dihapus, masih dipakai di Active Access Dashboard"}), 409
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
 @app.route("/api/role-suggestion", methods=["POST"])
 def role_suggestion():
     """
@@ -272,7 +518,7 @@ def generate_provisioning_script():
 
     required_fields = [
         "requester", "nik", "unit", "subunit", "created_by",
-        "dbtype", "host", "username", "role", "quarter", "year",
+        "dbtype", "cluster_id", "username", "role", "quarter", "year",
     ]
     missing = [f for f in required_fields if not str(body.get(f, "")).strip()]
     if missing:
@@ -281,6 +527,9 @@ def generate_provisioning_script():
     dbtype = body["dbtype"]
     if dbtype not in ALLOWED_DB_TYPES:
         return jsonify({"error": "dbtype tidak valid"}), 400
+
+    if dbtype == "oracle" and not str(body.get("oracle_service_name", "")).strip():
+        return jsonify({"error": "Service Name wajib diisi untuk Oracle"}), 400
 
     if dbtype in ("mysql", "postgres") and not str(body.get("allowlist", "")).strip():
         return jsonify({"error": "Host allowlist wajib diisi untuk MySQL/PostgreSQL"}), 400
@@ -323,7 +572,7 @@ def save_provisioning():
 
     required_fields = [
         "requester", "nik", "divisi", "unit", "subunit", "created_by",
-        "dbtype", "host", "username", "role", "expiry_iso",
+        "dbtype", "cluster_id", "username", "role", "expiry_iso",
     ]
     missing = [f for f in required_fields if not str(body.get(f, "")).strip()]
     if missing:
@@ -333,15 +582,33 @@ def save_provisioning():
     if dbtype not in ALLOWED_DB_TYPES:
         return jsonify({"error": "dbtype tidak valid"}), 400
 
+    if dbtype == "oracle" and not str(body.get("oracle_service_name", "")).strip():
+        return jsonify({"error": "Service Name wajib diisi untuk Oracle"}), 400
+
+    cluster_id = body["cluster_id"]
+
     conn = db.get_connection()
     cur = conn.cursor()
     try:
+        # Ambil snapshot nama cluster untuk display (db_host legacy text column)
+        cur.execute(
+            "SELECT rdbms, cluster_name FROM db_cluster_master WHERE id = %s", (cluster_id,)
+        )
+        cluster_row = cur.fetchone()
+        if not cluster_row:
+            return jsonify({"error": "Cluster tidak ditemukan"}), 404
+        cluster_rdbms, cluster_name = cluster_row
+        if cluster_rdbms != dbtype:
+            return jsonify({"error": "dbtype tidak sesuai dengan RDBMS cluster yang dipilih"}), 400
+        host_snapshot = f"{cluster_rdbms} - {cluster_name}"
+
         cur.execute(
             """
             INSERT INTO access_tracking
                 (username, nik, requester, divisi, unit, subunit, db_type, db_host,
+                 db_cluster_id, oracle_service_name,
                  role_name, host_allowlist, created_at, expiry_at, status, created_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING', %s)
             """,
             (
                 body["username"].strip(),
@@ -351,7 +618,9 @@ def save_provisioning():
                 body["unit"].strip(),
                 body["subunit"].strip(),
                 dbtype,
-                body["host"].strip(),
+                host_snapshot,
+                cluster_id,
+                body.get("oracle_service_name", "").strip() or None,
                 body["role"].strip(),
                 body.get("allowlist", "").strip() or None,
                 datetime.now(),

@@ -113,9 +113,21 @@ def init_schema():
             )
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS db_cluster_master (
+                id              INT AUTO_INCREMENT PRIMARY KEY,
+                rdbms           ENUM('oracle','mysql','postgres') NOT NULL,
+                cluster_name    VARCHAR(150) NOT NULL,
+                created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_rdbms_cluster (rdbms, cluster_name)
+            )
+            """
+        )
         conn.commit()
         _migrate_add_last_updated(conn)
         _migrate_add_divisi(conn)
+        _migrate_add_cluster_fk(conn)
     finally:
         cur.close()
         conn.close()
@@ -160,7 +172,44 @@ def _migrate_add_divisi(conn):
         cur.close()
 
 
-def _migrate_add_last_updated(conn):
+def _migrate_add_cluster_fk(conn):
+    """
+    Migrasi untuk menambahkan kolom db_cluster_id (FK ke db_cluster_master)
+    dan oracle_service_name ke access_tracking.
+    Kolom db_host lama TIDAK dihapus — tetap dipakai sebagai fallback
+    untuk record lama yang belum punya db_cluster_id (legacy text).
+    Aman dijalankan berulang kali (cek dulu sebelum ALTER).
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'access_tracking'
+              AND COLUMN_NAME = 'db_cluster_id'
+            """,
+            (DB_NAME,),
+        )
+        exists = cur.fetchone()[0] > 0
+        if not exists:
+            cur.execute(
+                "ALTER TABLE access_tracking ADD COLUMN db_cluster_id INT NULL AFTER db_host"
+            )
+            cur.execute(
+                "ALTER TABLE access_tracking ADD COLUMN oracle_service_name VARCHAR(150) NULL AFTER db_cluster_id"
+            )
+            cur.execute(
+                """
+                ALTER TABLE access_tracking
+                ADD CONSTRAINT fk_tracking_cluster
+                FOREIGN KEY (db_cluster_id) REFERENCES db_cluster_master(id)
+                ON DELETE RESTRICT
+                """
+            )
+            conn.commit()
+            print("[migration] Kolom db_cluster_id, oracle_service_name + FK ditambahkan ke access_tracking")
+    finally:
+        cur.close()
     """
     Migrasi untuk database yang dibuat sebelum kolom last_updated ditambahkan.
     Aman dijalankan berulang kali (cek dulu sebelum ALTER).
