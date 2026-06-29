@@ -451,6 +451,31 @@ def delete_cluster(cluster_id):
         conn.close()
 
 
+@app.route("/api/employees/org-list", methods=["GET"])
+def employee_org_list():
+    """
+    Return daftar unik (divisi, unit) dari employee_master.
+    Dipakai di Role Management agar Divisi/Unit dipilih dari data karyawan
+    yang sudah ada, bukan ketik manual lagi.
+    """
+    conn = db.get_connection()
+    cur = conn.cursor(dictionary=True)
+    try:
+        cur.execute(
+            """
+            SELECT DISTINCT divisi, unit
+            FROM employee_master
+            WHERE divisi != '' AND unit != ''
+            ORDER BY divisi, unit
+            """
+        )
+        rows = cur.fetchall()
+        return jsonify(rows)
+    finally:
+        cur.close()
+        conn.close()
+
+
 @app.route("/api/role-suggestion", methods=["POST"])
 def role_suggestion():
     """

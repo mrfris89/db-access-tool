@@ -728,11 +728,16 @@
         <div class="grid2">
           <div class="field">
             <label>Divisi *</label>
-            <input type="text" id="rm-divisi" placeholder="cth. IT Infrastructure & Cyber Security">
+            <select id="rm-divisi" onchange="onRmDivisiChange()" style="width:100%;">
+              <option value="">— Pilih Divisi —</option>
+            </select>
+            <div class="hint" id="rm-org-hint">Memuat daftar divisi dari Data Karyawan...</div>
           </div>
           <div class="field">
             <label>Unit *</label>
-            <input type="text" id="rm-unit" placeholder="cth. Cyber Security & Fraud Management">
+            <select id="rm-unit" style="width:100%;">
+              <option value="">— Pilih Divisi dulu —</option>
+            </select>
           </div>
         </div>
         <div style="display:flex; gap:8px; align-items:center;">
@@ -1069,6 +1074,7 @@ const originalShowPage = window.showPage;
 window.showPage = function(page){
   originalShowPage(page);
   if(page === 'provisioning') loadProvisioningClusters();
+  if(page === 'roles') loadOrgListForRoleManagement();
 };
 
 function quarterEndDate(quarter, year){
@@ -2006,6 +2012,39 @@ async function renderRoleTable(){
 }
 
 let roleTableData = [];
+let orgListData = [];
+
+async function loadOrgListForRoleManagement(){
+  try {
+    orgListData = await apiGet('/api/employees/org-list');
+    const divisiSelect = document.getElementById('rm-divisi');
+    const uniqueDivisi = [...new Set(orgListData.map(o => o.divisi))].sort();
+
+    if(uniqueDivisi.length === 0){
+      document.getElementById('rm-org-hint').textContent = 'Belum ada data Divisi/Unit. Upload Data Karyawan dulu.';
+      return;
+    }
+
+    divisiSelect.innerHTML = '<option value="">— Pilih Divisi —</option>' +
+      uniqueDivisi.map(d => `<option value="${d}">${d}</option>`).join('');
+    document.getElementById('rm-org-hint').textContent = `${uniqueDivisi.length} divisi tersedia dari Data Karyawan.`;
+  } catch(err){
+    document.getElementById('rm-org-hint').textContent = 'Gagal memuat: ' + err.message;
+  }
+}
+
+function onRmDivisiChange(){
+  const divisi = document.getElementById('rm-divisi').value;
+  const unitSelect = document.getElementById('rm-unit');
+  if(!divisi){
+    unitSelect.innerHTML = '<option value="">— Pilih Divisi dulu —</option>';
+    return;
+  }
+  const units = orgListData.filter(o => o.divisi === divisi).map(o => o.unit).sort();
+  unitSelect.innerHTML = '<option value="">— Pilih Unit —</option>' +
+    units.map(u => `<option value="${u}">${u}</option>`).join('');
+}
+
 async function rmGenerateSuggestion(){
   const divisi = document.getElementById('rm-divisi').value.trim();
   const unit = document.getElementById('rm-unit').value.trim();
@@ -2038,7 +2077,7 @@ async function rmSaveRole(){
     await apiPost('/api/roles', { role_name, divisi, unit, suffix });
     document.getElementById('rm-role-name').value = '';
     document.getElementById('rm-divisi').value = '';
-    document.getElementById('rm-unit').value = '';
+    document.getElementById('rm-unit').innerHTML = '<option value="">— Pilih Divisi dulu —</option>';
     document.getElementById('rm-suggestion-hint').textContent = '';
     renderRoleTable();
   } catch(err){
